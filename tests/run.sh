@@ -19,7 +19,15 @@ echo "===== 2. フォロワー数の抽出 ====="
 node "$ROOT/tests/verify_extract_profile.mjs"
 
 echo
-echo "===== 3. 公開の安全性 ====="
+echo "===== 3. やり直し判定 ====="
+node "$ROOT/tests/verify_retry.mjs"
+
+echo
+echo "===== 4. 伸び率の計算 ====="
+python3 "$ROOT/tests/verify_ratio.py"
+
+echo
+echo "===== 5. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 
 echo
