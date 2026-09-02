@@ -68,7 +68,11 @@ echo "===== 11. 公開判定 ====="
 bash "$ROOT/tests/verify_publish.sh"
 
 echo
-echo "===== 12. 公開の安全性 ====="
+echo "===== 12. 自動実行の設定 ====="
+bash "$ROOT/tests/verify_launchd.sh"
+
+echo
+echo "===== 13. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 
 echo
