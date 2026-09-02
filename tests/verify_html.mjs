@@ -145,5 +145,32 @@ console.log('--- 8. 件数上限に当たった版 ---');
         d2.window.document.querySelectorAll('.card').length);
 }
 
+console.log('--- 9. 他人由来の値が HTML として解釈されないこと ---');
+{
+  const hostile = fs.readFileSync(process.env.SCRATCH + '/preview_hostile.html', 'utf8');
+  const d3 = new JSDOM(hostile, { runScripts: 'dangerously' });
+  const w3 = d3.window;
+  check('埋め込まれたスクリプトが実行されていない', w3.__pwned === undefined, w3.__pwned);
+  check('script タグが増えていない（データ由来のものが無い）',
+        [...d3.window.document.querySelectorAll('script')]
+          .every(s => !/__pwned/.test(s.textContent)), null);
+  const card = [...d3.window.document.querySelectorAll('.card')]
+    .find(c => /evil/.test(c.textContent));
+  check('意地悪なリールのカードが存在する（この検証が空回りしていないこと）',
+        card !== undefined, null);
+  check('ユーザー名は文字として表示される',
+        /evil"><script>/.test(card.querySelector('.user').textContent),
+        card.querySelector('.user').textContent);
+  check('ユーザー名の中に要素が作られていない',
+        card.querySelector('.user').children.length === 0,
+        card.querySelector('.user').innerHTML);
+  check('javascript: のリンクは href を持たない',
+        card.querySelector('a.link') === null,
+        card.querySelector('a.link') && card.querySelector('a.link').getAttribute('href'));
+  check('キャプションも文字として表示される',
+        card.querySelector('.caption').children.length === 0,
+        card.querySelector('.caption').innerHTML);
+}
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);

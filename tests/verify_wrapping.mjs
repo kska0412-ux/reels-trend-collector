@@ -88,5 +88,29 @@ const thumbUnits = [...doc.querySelectorAll('.note-thumb .nb')].map(e => e.textC
 check('サムネ注記が文節ごとに分かれている', thumbUnits.length === 4, thumbUnits);
 check('「サムネイル画像は」が1かたまり', thumbUnits.includes('サムネイル画像は'), thumbUnits);
 
+console.log('--- 7. ライトとダークで同じトークンが定義されている ---');
+// jsdom は CSS を評価しないので、テキストとして3ブロックを抜き出して比べる。
+// 片方だけ色を足す変更が入ると、その閲覧環境だけ色が抜ける。
+function tokensIn(selector) {
+  const re = new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}', 's');
+  const m = css.match(re);
+  if (!m) return null;
+  return [...m[1].matchAll(/(--[\w-]+)\s*:/g)].map((x) => x[1]).sort();
+}
+const light = tokensIn(':root');
+const sysDark = tokensIn(':root:not([data-theme="light"])');
+const optDark = tokensIn(':root[data-theme="dark"]');
+check('明るい側のトークンが定義されている', light !== null && light.length > 0, light);
+check('OSがダークのときのトークンが定義されている', sysDark !== null, sysDark);
+check('閲覧者がダークを選んだときのトークンが定義されている', optDark !== null, optDark);
+check('OSダーク側が明るい側と同じ顔ぶれ',
+      JSON.stringify(sysDark) === JSON.stringify(light),
+      { light, sysDark });
+check('閲覧者ダーク側が明るい側と同じ顔ぶれ',
+      JSON.stringify(optDark) === JSON.stringify(light),
+      { light, optDark });
+check('body に背景色を塗っている（透明にしない）',
+      /body\s*\{[^}]*background:\s*var\(--bg\)/s.test(css), null);
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);

@@ -380,6 +380,21 @@ TEMPLATE_SCRIPT = r"""
 
   function num(v) { return v === null || v === undefined ? '—' : v.toLocaleString(); }
 
+  /* 他人由来の値を innerHTML に入れる前に無害化する。
+     キャプションは textContent で守っているが、ユーザー名とリンクも同じく他人由来。
+     Instagram 側の制限に安全性を預けない。 */
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /* リンク先は自前で組み立てた instagram.com のURLのはず。
+     そうでないものは href を付けない（javascript: などを踏ませない）。 */
+  function safeReelUrl(u) {
+    return typeof u === 'string' && u.indexOf('https://www.instagram.com/') === 0 ? u : '';
+  }
+
   function ago(hours) {
     if (hours === null || hours === undefined) return '—';
     if (hours < 24) return Math.round(hours) + '時間前';
@@ -452,7 +467,7 @@ TEMPLATE_SCRIPT = r"""
     el.innerHTML =
       '<div class="head">' +
         '<span class="ratio">' + (r.ratio === null ? '—' : '×' + r.ratio) + '</span>' +
-        '<span class="user">@' + r.username + '</span>' +
+        '<span class="user">@' + esc(r.username) + '</span>' +
         '<span class="followers">フォロワー ' + num(r.followers) + '</span>' +
       '</div>' +
       '<div class="metrics">' +
@@ -463,10 +478,15 @@ TEMPLATE_SCRIPT = r"""
       '</div>' +
       '<p class="caption"></p>' +
       '<div class="tags">' + r.hashtags.map(function (h) {
-        return '<span class="tag">#' + h + '</span>';
+        return '<span class="tag">#' + esc(h) + '</span>';
       }).join('') + '</div>' +
-      '<a class="link" target="_blank" rel="noopener noreferrer" href="' +
-        r.permalink + '">リールを開く</a>';
+      (function () {
+        var href = safeReelUrl(r.permalink);
+        return href
+          ? '<a class="link" target="_blank" rel="noopener noreferrer" href="' +
+            esc(href) + '">リールを開く</a>'
+          : '<span class="link">リンクなし</span>';
+      })();
     /* キャプションは他人の文章。HTMLとして解釈させない。 */
     el.querySelector('.caption').textContent = r.caption;
     el.__row = r;

@@ -108,12 +108,33 @@ def build(now):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--hostile", action="store_true",
+                        help="HTMLとして解釈されると困る値を持つリールを足す（無害化の検証用）")
     args = parser.parse_args()
     # 固定時刻。実行するたびに結果が変わらないようにする。
     now = datetime(2026, 9, 2, 7, 0, tzinfo=JST)
+
+    data = build(now)
+    if args.hostile:
+        # 通常のフィクスチャは28件のまま保つ（verify_select.py がその数を前提にしている）。
+        # 無害化の検証だけ、この分を足した別ファイルで行う。
+        data["reels"]["hostile1"] = {
+            "id": "hostile1", "code": 'X"><script>window.__pwned=1</script>',
+            "username": 'evil"><script>window.__pwned=1</script>',
+            "caption": '<script>window.__pwned=1</script>キャプションも危ない',
+            "timestamp": (now - timedelta(days=1)).astimezone(
+                JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "permalink": 'javascript:window.__pwned=1',
+            "play_count": 1000, "like_count": 10, "comment_count": 1,
+            "genres": ["ネイル"], "hashtags_hit": ['<script>window.__pwned=1</script>'],
+            "first_seen": now.isoformat(), "last_updated": now.isoformat(),
+        }
+        data["accounts"]['evil"><script>window.__pwned=1</script>'] = {
+            "follower_count": 100, "fetched_at": now.isoformat()}
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps(build(now), ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"作成しました: {args.output}")
 
 

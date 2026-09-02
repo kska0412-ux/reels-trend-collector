@@ -41,6 +41,10 @@ python3 "$ROOT/scripts/build_html.py" --input "$WORK/fixture_reels.json" \
 # 件数上限に当たったときの表示も確かめるため、絞り込みが起きる版も作る
 python3 "$ROOT/scripts/build_html.py" --input "$WORK/fixture_reels.json" \
   --output "$WORK/preview_trimmed.html" --max-reels 3 > /dev/null
+# 他人由来の値が HTML として解釈されないことを確かめるための版
+python3 "$ROOT/tests/make_fixture.py" --hostile --output "$WORK/fixture_hostile.json" > /dev/null
+python3 "$ROOT/scripts/build_html.py" --input "$WORK/fixture_hostile.json" \
+  --output "$WORK/preview_hostile.html" --max-age-days 0 --max-reels 0 > /dev/null
 SCRATCH="$WORK" node "$ROOT/tests/verify_html.mjs"
 
 echo
