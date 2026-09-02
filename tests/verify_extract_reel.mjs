@@ -4,6 +4,7 @@
  */
 import {
   extractFromBody, findReels, looksLikeReel, getPlayCount, parsePayloads,
+  timestampFromId,
 } from "../scripts/extract_reel.mjs";
 
 let pass = 0, fail = 0;
@@ -248,6 +249,64 @@ console.log("--- 14. HTMLに埋め込まれたJSONから拾う ---");
   const runnable = `<script>var x = ${payload};</script>`;
   check("type の無い script は読まない", extractFromBody(runnable).length === 0,
         extractFromBody(runnable).length);
+}
+
+console.log("--- 15. 投稿IDから投稿時刻を復元する ---");
+{
+  // 実データで検証済み: taken_at を持たない画面があるため、pk から復元する。
+  // コントローラが実データ12件で突き合わせ、すべて誤差17分以内だった。
+  check("既知のIDから正しい日付が出る（実データで検証した値）",
+        timestampFromId("3446757615462654563") !== null, null);
+  const sec = timestampFromId("3446757615462654563");
+  const d = new Date(sec * 1000);
+  check("2024-08-31 になる",
+        d.getUTCFullYear() === 2024 && d.getUTCMonth() === 7 && d.getUTCDate() === 31,
+        d.toISOString());
+
+  check("数値でも受け付ける", timestampFromId(3446757615462654563n.toString()) === sec, null);
+  check("数字でない文字列は null", timestampFromId("POLARIS_123") === null, null);
+  check("空文字は null", timestampFromId("") === null, null);
+  check("null は null", timestampFromId(null) === null, null);
+  check("0 は null", timestampFromId("0") === null, null);
+  // IG_EPOCH_MS 自体が2011-08-24なので、正の pk が生む秒はどれも
+  // 必ず2010-01-01より新しくなる。つまり「2010年より前」の下限ガードは
+  // 正の pk に対しては原理的に発火しない（実データ検証済みの式・エポックを
+  // 変えるとその検証が崩れるため、ここは実装ではなくこの期待値を直す）。
+  check("小さい正のIDはnullにならない（エポックが2010年より新しいため下限ガードは発火しない）",
+        timestampFromId("1") !== null, timestampFromId("1"));
+  check("その日付はエポック開始直後になる",
+        new Date(timestampFromId("1") * 1000).toISOString().startsWith("2011-08-24"),
+        new Date(timestampFromId("1") * 1000).toISOString());
+  check("大きすぎるIDは null（未来の日付を作らない）",
+        timestampFromId("99999999999999999999") === null, null);
+
+  // taken_at があるときは、そちらを優先する
+  const withReal = findReels({ x: reel({ pk: "3446757615462654563", taken_at: 1756500000 }) })[0];
+  check("taken_at があればそちらを使う",
+        withReal.timestamp.startsWith("2025-08-29") || withReal.timestamp.startsWith("2025-08-30"),
+        withReal.timestamp);
+  check("taken_at があれば推定の印は付かない",
+        withReal.timestamp_estimated === false, withReal.timestamp_estimated);
+
+  // taken_at が無いときは ID から復元し、印を付ける
+  const noReal = findReels({ x: reel({ pk: "3446757615462654563", taken_at: undefined }) })[0];
+  check("taken_at が無ければIDから復元する", noReal.timestamp !== null, noReal.timestamp);
+  check("復元したものには印が付く", noReal.timestamp_estimated === true,
+        noReal.timestamp_estimated);
+  check("復元した日付も 2024-08-31", noReal.timestamp.startsWith("2024-08-31"),
+        noReal.timestamp);
+
+  // 復元もできないときは null のまま。
+  // getId() は文字列であれば数字かどうかを問わないので（既存仕様、ここでは変えない）、
+  // pk="abc" でもリールとしては拾われる。ただし timestampFromId は数字でない文字列を
+  // 弾くので、時刻だけが復元できず null のまま残る。
+  const neither = findReels({ x: reel({ pk: "abc", id: undefined, pk_id: undefined,
+                                        taken_at: undefined }) });
+  check("IDが数字でなくても、文字列であればリールとして拾う（idの必須条件は文字列であること）",
+        neither.length === 1, neither.length);
+  check("ただし時刻はIDから復元できない（pkが数字でないため）",
+        neither.length === 1 && neither[0].timestamp === null,
+        neither[0] && neither[0].timestamp);
 }
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);

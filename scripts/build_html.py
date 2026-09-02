@@ -76,6 +76,7 @@ def build_rows(store, now=None):
             "ratio": round(ratio, 1) if ratio is not None else None,
             "ageHours": round(age_hours, 1) if age_hours is not None else None,
             "postedAt": posted_iso,
+            "timestampEstimated": bool(r.get("timestamp_estimated")),
             "genres": r.get("genres") or [],
             "hashtags": r.get("hashtags_hit") or [],
         })
@@ -497,7 +498,8 @@ TEMPLATE_SCRIPT = r"""
         '<span class="metric">再生 ' + num(r.plays) + '</span>' +
         '<span class="metric">いいね ' + num(r.likes) + '</span>' +
         '<span class="metric">コメント ' + num(r.comments) + '</span>' +
-        '<span class="metric">' + ago(r.ageHours) + '</span>' +
+        '<span class="metric">' + ago(r.ageHours) +
+          (r.timestampEstimated ? '（およそ）' : '') + '</span>' +
       '</div>' +
       '<p class="caption"></p>' +
       '<div class="tags">' + r.hashtags.map(function (h) {

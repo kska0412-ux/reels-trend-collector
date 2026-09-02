@@ -61,16 +61,22 @@ r26 = by_id["r26"]
 check("フォロワー20人は500人扱い（×20）", abs(r26["ratio"] - 20.0) < 0.01, r26["ratio"])
 
 print("--- 4. 投稿時刻が取れていない場合 ---")
-r27 = by_id["r27"]
-check("ageHours は None", r27["ageHours"] is None, r27["ageHours"])
-check("postedAt は空文字", r27["postedAt"] == "", r27["postedAt"])
+# 時刻が取れないリールも扱えること。フィクスチャを汚さずここで作る。
+no_time_store = build_fixture(NOW)
+no_time_store["reels"]["r27"]["timestamp"] = None
+nt_rows = build_rows(no_time_store, now=NOW)
+nt = next(r for r in nt_rows if r["id"] == "r27")
+check("ageHours は None", nt["ageHours"] is None, nt["ageHours"])
+check("postedAt は空文字", nt["postedAt"] == "", nt["postedAt"])
 
 print("--- 5. 期間フィルタ ---")
 selected, aged_out, over_cap = select_rows(rows, 180, 0)
 ids = {r["id"] for r in selected}
 check("1年前のリールは落ちる", "r28" not in ids, sorted(ids))
 check("落ちたのは1件", aged_out == 1, aged_out)
-check("投稿時刻が無いリールは残る", "r27" in ids, sorted(ids))
+nt_selected, _, _ = select_rows(nt_rows, 180, 0)
+nt_ids = {r["id"] for r in nt_selected}
+check("投稿時刻が無いリールは残る", "r27" in nt_ids, sorted(nt_ids))
 check("上限で落ちたのは0件", over_cap == 0, over_cap)
 selected_all, aged_all, _ = select_rows(rows, 0, 0)
 check("max_age_days=0 なら期間で落とさない", aged_all == 0 and len(selected_all) == 28,

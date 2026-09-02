@@ -63,6 +63,40 @@ function getCaption(o) {
   return "";
 }
 
+// Instagram の投稿ID（pk）は、上位ビットにミリ秒時刻を持つ。
+// 2011-08-24 ごろを起点とする独自エポック。
+const IG_EPOCH_MS = 1314220021721;
+
+/**
+ * 投稿ID から投稿時刻を復元する。取れなければ null。
+ *
+ * リール一覧の画面には taken_at が入っていないが pk はある。
+ * 実データ12件で taken_at と突き合わせ、すべて誤差17分以内だった
+ * （多くは誤差0秒）。分単位の精度は無いが、日付の精度は十分あるので
+ * 「何日前か」の表示と期間フィルタには使える。
+ */
+export function timestampFromId(id) {
+  if (typeof id !== "string" && typeof id !== "number") return null;
+  const s = String(id);
+  if (!/^\d+$/.test(s)) return null;          // 'POLARIS_123' のような形は対象外
+  let pk;
+  try {
+    pk = BigInt(s);
+  } catch {
+    return null;
+  }
+  if (pk <= 0n) return null;
+
+  const ms = (pk >> 23n) + BigInt(IG_EPOCH_MS);
+  const seconds = Number(ms / 1000n);
+
+  // 桁数が違うIDを渡された場合に、ありえない日付を作らないための関門。
+  // Instagram の開始（2010年）より前、または1日以上先の未来は捨てる。
+  const nowSec = Date.now() / 1000;
+  if (seconds < 1262304000 || seconds > nowSec + 86400) return null;  // 2010-01-01
+  return seconds;
+}
+
 function getTimestamp(o) {
   // taken_at は UNIX 秒。ミリ秒やマイクロ秒で来る実装もあるので桁で判別する。
   for (const k of ["taken_at", "taken_at_timestamp", "device_timestamp", "publish_date"]) {
@@ -78,6 +112,16 @@ function getTimestamp(o) {
     }
   }
   if (typeof o.timestamp === "string" && o.timestamp) return o.timestamp;
+
+  // taken_at がどこにも無い画面がある（リール一覧がそれ）。
+  // 最後の手段として投稿IDから復元する。取れた値ではないので、
+  // 呼び出し側で「復元したもの」と分かるように印を付ける。
+  for (const k of ["pk", "id", "pk_id"]) {
+    const seconds = timestampFromId(o[k]);
+    if (seconds !== null) {
+      return new Date(seconds * 1000).toISOString().replace(".000Z", "+0000");
+    }
+  }
   return null;
 }
 
@@ -99,12 +143,20 @@ export function looksLikeReel(o) {
 /** リールオブジェクトを、保存する形に整える。 */
 export function normalizeReel(o) {
   const code = getCode(o);
+  const timestamp = getTimestamp(o);
+  // taken_at 系のキーが1つも無ければ、上の getTimestamp は ID から復元している。
+  // 復元値は分単位の誤差があるので、そうと分かるようにしておく。
+  const hasRealTime =
+    ["taken_at", "taken_at_timestamp", "device_timestamp", "publish_date"]
+      .some((k) => typeof o[k] === "number" && o[k] > 0)
+    || (typeof o.timestamp === "string" && o.timestamp !== "");
   return {
     id: getId(o),
     code,
     username: getUsername(o),
     caption: getCaption(o),
-    timestamp: getTimestamp(o),
+    timestamp,
+    timestamp_estimated: timestamp !== null && !hasRealTime,
     permalink: `https://www.instagram.com/reel/${code}/`,
     play_count: getPlayCount(o),
     like_count: num(o.like_count),

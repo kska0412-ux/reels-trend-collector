@@ -40,8 +40,8 @@ from common import (  # noqa: E402
 SCRAPER = BASE_DIR / "scripts" / "scrape.mjs"
 
 # 保存するリールのフィールド。スクレイパが返すキーと一致させてある。
-REEL_FIELDS = ("id", "code", "username", "caption", "timestamp", "permalink",
-               "play_count", "like_count", "comment_count")
+REEL_FIELDS = ("id", "code", "username", "caption", "timestamp", "timestamp_estimated",
+               "permalink", "play_count", "like_count", "comment_count")
 
 
 def load_store():

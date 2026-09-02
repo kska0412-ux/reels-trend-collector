@@ -85,17 +85,19 @@ def build(now):
     }
     accounts["tiny_account"] = {"follower_count": 20, "fetched_at": now.isoformat()}
 
-    # 27: 投稿時刻が取れていない。期間フィルタで落とさないこと。
+    # 27: 投稿時刻を投稿IDから復元したリール。画面に「およそ」と出る。
     reels["r27"] = {
-        "id": "r27", "code": "CODE027", "username": "no_timestamp",
-        "caption": "投稿時刻が取れていないリール",
-        "timestamp": None,
+        "id": "3446757615462654563", "code": "CODE027", "username": "estimated_time",
+        "caption": "投稿時刻をIDから復元したリール",
+        "timestamp": (now - timedelta(days=3)).astimezone(
+            JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "timestamp_estimated": True,
         "permalink": "https://www.instagram.com/reel/CODE027/",
         "play_count": 5_000, "like_count": 50, "comment_count": 2,
-        "genres": ["育毛・頭皮ケア"], "hashtags_hit": ["育毛"],
+        "genres": [GENRES[0]], "hashtags_hit": [TAGS[GENRES[0]]],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
-    accounts["no_timestamp"] = {"follower_count": 3_000, "fetched_at": now.isoformat()}
+    accounts["estimated_time"] = {"follower_count": 3_000, "fetched_at": now.isoformat()}
 
     # 28: 1年前の古いリール。180日フィルタで落ちるはず。
     reels["r28"] = {

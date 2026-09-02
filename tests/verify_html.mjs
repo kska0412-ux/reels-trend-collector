@@ -205,5 +205,20 @@ console.log('--- 10. タブの並びは設定ファイルの順に従う ---');
         JSON.stringify(got) === JSON.stringify(want), { got, want });
 }
 
+console.log('--- 11. 復元した投稿時刻には「およそ」と出す ---');
+{
+  // 取れた時刻と復元した時刻を、同じ顔で見せない。
+  const est = [...doc.querySelectorAll('.card')]
+    .find(c => /estimated_time/.test(c.textContent));
+  check('復元した時刻を持つカードがある（この検証が空回りしていないこと）',
+        est !== undefined, null);
+  check('「およそ」と出る', /（およそ）/.test(est.textContent), est.textContent);
+  const real = [...doc.querySelectorAll('.card')]
+    .find(c => /creator_01/.test(c.textContent));
+  check('取れた時刻には「およそ」を付けない',
+        real !== undefined && !/（およそ）/.test(real.textContent),
+        real && real.textContent);
+}
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);
