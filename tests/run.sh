@@ -72,6 +72,14 @@ echo "===== 12. 自動実行の設定 ====="
 bash "$ROOT/tests/verify_launchd.sh"
 
 echo
+echo "===== 13. 自動実行の時刻 ====="
+python3 "$ROOT/tests/verify_schedule.py"
+
+echo
+echo "===== 14. 自動実行の排他と再試行 ====="
+bash "$ROOT/tests/verify_lock.sh"
+
+echo
 echo "===== 13. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 

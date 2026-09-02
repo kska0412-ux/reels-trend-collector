@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# ジャンルごとに1日1回の自動収集を登録する。
+# ジャンルと掛け合わせ語ごとに、1日1回の自動収集を登録する。
 # 1日の中に分散させて、Instagram への連続アクセスを避ける。
+#
+# 時刻の決定は scripts/schedule.py が持つ。同じ Mac で動いている
+# Threads Research Tool（7時・13時・21時）の帯を避けて散らす。
 #
 #   bash scripts/install_launchd.sh
 #
@@ -28,38 +31,31 @@ else
   bash "$ROOT/scripts/uninstall_launchd.sh" >/dev/null 2>&1 || true
 fi
 
-# ジャンル名を config から読む。1行1ジャンル。
+# 巡回する単位と時刻を schedule.py から読む。1行 "名前<TAB>時<TAB>分"。
+# 掛け合わせ語（経営・メニューなど）も含む。落とすと #サロン経営 などが
+# 永久に自動収集されない。
 # macOS 標準の bash (3.2) には mapfile が無いため while read で読む。
 GENRES=()
-while IFS= read -r line; do
-  GENRES+=("$line")
-done < <(python3 -c "
-import json
-for g in json.load(open('$ROOT/config/genres.json'))['genres']:
-    print(g)
-")
+HOURS=()
+MINUTES=()
+while IFS=$'\t' read -r name hour minute; do
+  [ -z "$name" ] && continue
+  GENRES+=("$name")
+  HOURS+=("$hour")
+  MINUTES+=("$minute")
+done < <(python3 "$ROOT/scripts/schedule.py")
 
 COUNT=${#GENRES[@]}
 if [ "$COUNT" -eq 0 ]; then
-  echo "config/genres.json にジャンルがありません。"
+  echo "config/genres.json に巡回する単位がありません。"
   exit 1
 fi
 
-echo "登録します（$COUNT ジャンル）:"
+echo "登録します（$COUNT 件）:"
 for i in "${!GENRES[@]}"; do
   GENRE="${GENRES[$i]}"
-  # 7時から22時のあいだに均等に散らす
-  if [ "$COUNT" -eq 1 ]; then
-    HOUR=7
-    MINUTE=0
-  else
-    # 7時から22時（900分）を、ジャンル数で等分する。
-    # 時間単位だと19ジャンルで7時・12時・17時が重複し、
-    # そこだけブラウザが2つ同時に立ち上がる。分まで刻んで散らす。
-    OFFSET=$(( i * 900 / (COUNT - 1) ))
-    HOUR=$(( 7 + OFFSET / 60 ))
-    MINUTE=$(( OFFSET % 60 ))
-  fi
+  HOUR="${HOURS[$i]}"
+  MINUTE="${MINUTES[$i]}"
   # ラベルに日本語は使えないので連番にする
   LABEL="$PREFIX.$i"
   DEST="$AGENTS/$LABEL.plist"

@@ -32,17 +32,19 @@ check "書き出し先が \$HOME/Library/LaunchAgents ではない" \
   "$(echo "$DRY_DIR" | grep -c "^$AGENTS_REAL$")" "0"
 check "書き出し先が存在する" "$([ -d "$DRY_DIR" ] && echo yes)" "yes"
 
-# config/genres.json から期待するジャンル一覧を作る
+# 主ジャンルと掛け合わせ語の両方を期待する。掛け合わせを落とすと
+# #サロン経営 などが永久に自動収集されない
 EXPECTED_GENRES="$(python3 -c "
 import json
-for g in json.load(open('$ROOT/config/genres.json'))['genres']:
+c = json.load(open('$ROOT/config/genres.json'))
+for g in list(c['genres']) + list(c.get('modifiers') or {}):
     print(g)
 " | sort)"
 EXPECTED_COUNT="$(echo "$EXPECTED_GENRES" | grep -c .)"
 
 PLISTS=("$DRY_DIR"/*.plist)
 ACTUAL_COUNT="${#PLISTS[@]}"
-check "ジャンル数ぶんのplistが作られる" "$ACTUAL_COUNT" "$EXPECTED_COUNT"
+check "主ジャンルと掛け合わせ語ぶんのplistが作られる" "$ACTUAL_COUNT" "$EXPECTED_COUNT"
 
 echo
 echo "-- 各plistの検証 --"
@@ -89,9 +91,9 @@ for f in "${PLISTS[@]}"; do
   minute="$(echo "$content" | sed -n 's/.*<key>Minute<\/key><integer>\([0-9]*\)<\/integer>.*/\1/p' | head -1)"
   ALL_HOURS="$ALL_HOURS $hour"
   ALL_TIMES="$ALL_TIMES $(printf '%02d:%02d' "$hour" "${minute:-0}")"
-  if [ -z "$hour" ] || [ "$hour" -lt 7 ] || [ "$hour" -gt 22 ]; then
+  if [ -z "$hour" ] || [ "$hour" -lt 8 ] || [ "$hour" -gt 20 ]; then
     BAD_HOUR=1
-    echo "  FAIL 時刻が7〜22の範囲外: $f ($hour)"
+    echo "  FAIL 時刻が8〜20の範囲外: $f ($hour)"
   fi
 
   # ジャンル名を集める（ProgramArguments の3番目の <string>）
@@ -132,7 +134,7 @@ done
 
 check "プレースホルダの残りが無い" "$PLACEHOLDER_LEFTOVER" "0"
 check "全plistが正しいXML" "$XML_BROKEN" "0"
-check "時刻が7〜22の範囲に収まる" "$BAD_HOUR" "0"
+check "時刻が8〜20の範囲に収まる" "$BAD_HOUR" "0"
 check "ProgramArgumentsにrun_collect.shとジャンル名がある" "$NO_RUN_COLLECT" "0"
 check "PATHにhomebrew/localのbinが入っている" "$BAD_PATH" "0"
 check "標準出力/標準エラーがリポジトリのlogs/を指す" "$NO_ROOT_LOG" "0"
@@ -146,6 +148,21 @@ check "時刻が重複していない" "$(echo "$TIMES_SORTED" | wc -l | tr -d '
 # ジャンル名が config/genres.json と過不足なく一致する
 ACTUAL_GENRES_SORTED="$(echo "$ACTUAL_GENRES" | grep -v '^$' | sort)"
 check "ジャンル名がconfigと過不足なく一致する" "$ACTUAL_GENRES_SORTED" "$EXPECTED_GENRES"
+
+# 同じ Mac で Threads Research Tool が 7時・13時・21時に走り、最悪54分かかる。
+# その帯に重ねると Chrome が2つ立ち上がって回線とCPUを食い合う
+IN_BUSY="$(python3 -c "
+import sys
+busy = [(6*60+40, 8*60), (12*60+40, 14*60), (20*60+40, 22*60)]
+bad = []
+for t in '''$ALL_TIMES'''.split():
+    h, m = t.split(':')
+    x = int(h) * 60 + int(m)
+    if any(a <= x < b for a, b in busy):
+        bad.append(t)
+print(' '.join(bad))
+")"
+check "Threads側の時間帯に重ねていない" "${IN_BUSY:-none}" "none"
 
 echo
 echo "結果: $PASS pass / $FAIL fail"
