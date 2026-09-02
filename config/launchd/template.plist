@@ -25,7 +25,7 @@
 
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MINUTE__</integer></dict>
   </array>
 
   <key>StandardOutPath</key>

@@ -51,8 +51,14 @@ for i in "${!GENRES[@]}"; do
   # 7時から22時のあいだに均等に散らす
   if [ "$COUNT" -eq 1 ]; then
     HOUR=7
+    MINUTE=0
   else
-    HOUR=$(( 7 + i * 15 / (COUNT - 1) ))
+    # 7時から22時（900分）を、ジャンル数で等分する。
+    # 時間単位だと19ジャンルで7時・12時・17時が重複し、
+    # そこだけブラウザが2つ同時に立ち上がる。分まで刻んで散らす。
+    OFFSET=$(( i * 900 / (COUNT - 1) ))
+    HOUR=$(( 7 + OFFSET / 60 ))
+    MINUTE=$(( OFFSET % 60 ))
   fi
   # ラベルに日本語は使えないので連番にする
   LABEL="$PREFIX.$i"
@@ -62,16 +68,17 @@ for i in "${!GENRES[@]}"; do
       -e "s|__LABEL__|$LABEL|g" \
       -e "s|__GENRE__|$GENRE|g" \
       -e "s|__HOUR__|$HOUR|g" \
+      -e "s|__MINUTE__|$MINUTE|g" \
       "$TEMPLATE" > "$DEST"
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '  %2d:00  %s  → %s\n' "$HOUR" "$GENRE" "$DEST"
+    printf '  %2d:%02d  %s  → %s\n' "$HOUR" "$MINUTE" "$GENRE" "$DEST"
     continue
   fi
 
   launchctl unload "$DEST" 2>/dev/null || true
   launchctl load "$DEST"
-  printf '  %2d:00  %s\n' "$HOUR" "$GENRE"
+  printf '  %2d:%02d  %s\n' "$HOUR" "$MINUTE" "$GENRE"
 done
 
 if [ "$DRY_RUN" -eq 1 ]; then

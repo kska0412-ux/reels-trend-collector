@@ -50,7 +50,7 @@ echo "-- 各plistの検証 --"
 HAVE_PLUTIL=0
 command -v plutil >/dev/null 2>&1 && HAVE_PLUTIL=1
 
-ALL_HOURS=""
+ALL_HOURS=""; ALL_TIMES=""
 ACTUAL_GENRES=""
 PLACEHOLDER_LEFTOVER=0
 XML_BROKEN=0
@@ -82,9 +82,13 @@ for f in "${PLISTS[@]}"; do
     case "$tail1" in *\</plist\>) ;; *) XML_BROKEN=1; echo "  FAIL </plist> で終わらない: $f";; esac
   fi
 
-  # 時刻を集める
+  # 時刻を集める。分まで見る。時だけだとジャンル数が多いとき
+  # 「同じ時の別の分」を重複と誤判定する。実際に同時起動するのは
+  # 時と分の両方が一致したときだけ。
   hour="$(echo "$content" | sed -n 's/.*<key>Hour<\/key><integer>\([0-9]*\)<\/integer>.*/\1/p' | head -1)"
+  minute="$(echo "$content" | sed -n 's/.*<key>Minute<\/key><integer>\([0-9]*\)<\/integer>.*/\1/p' | head -1)"
   ALL_HOURS="$ALL_HOURS $hour"
+  ALL_TIMES="$ALL_TIMES $(printf '%02d:%02d' "$hour" "${minute:-0}")"
   if [ -z "$hour" ] || [ "$hour" -lt 7 ] || [ "$hour" -gt 22 ]; then
     BAD_HOUR=1
     echo "  FAIL 時刻が7〜22の範囲外: $f ($hour)"
@@ -133,11 +137,11 @@ check "ProgramArgumentsにrun_collect.shとジャンル名がある" "$NO_RUN_CO
 check "PATHにhomebrew/localのbinが入っている" "$BAD_PATH" "0"
 check "標準出力/標準エラーがリポジトリのlogs/を指す" "$NO_ROOT_LOG" "0"
 
-# 時刻の重複が無い
-HOURS_SORTED="$(echo "$ALL_HOURS" | tr ' ' '\n' | grep -v '^$' | sort)"
-HOURS_UNIQ="$(echo "$HOURS_SORTED" | uniq)"
-check "時刻が重複していない" "$(echo "$HOURS_SORTED" | wc -l | tr -d ' ')" \
-  "$(echo "$HOURS_UNIQ" | wc -l | tr -d ' ')"
+# 時刻の重複が無い（同じ時刻に2つ起動するとブラウザが同時に2つ立ち上がる）
+TIMES_SORTED="$(echo "$ALL_TIMES" | tr ' ' '\n' | grep -v '^$' | sort)"
+TIMES_UNIQ="$(echo "$TIMES_SORTED" | uniq)"
+check "時刻が重複していない" "$(echo "$TIMES_SORTED" | wc -l | tr -d ' ')" \
+  "$(echo "$TIMES_UNIQ" | wc -l | tr -d ' ')"
 
 # ジャンル名が config/genres.json と過不足なく一致する
 ACTUAL_GENRES_SORTED="$(echo "$ACTUAL_GENRES" | grep -v '^$' | sort)"
