@@ -372,6 +372,12 @@ TEMPLATE_SCRIPT = r"""
   var GENRES = JSON.parse(document.getElementById('genres').textContent);
   var SUMMARY = JSON.parse(document.getElementById('summary-data').textContent);
 
+  /* 最終更新は「データを集めた時刻」を出す。__GENERATED__ はHTMLを組んだ時刻で、
+     手元で build_html.py を叩き直すだけでも進んでしまい、新しいデータが
+     無いのに新鮮に見えてしまう。 */
+  var upd = document.querySelector('.updated .stat-value');
+  if (upd && SUMMARY.updatedAt) upd.textContent = SUMMARY.updatedAt;
+
   var state = { genre: null, sort: 'ratio', q: '' };
 
   /* 数値以外は「取れなかった」として扱う。文字列をそのまま流すと

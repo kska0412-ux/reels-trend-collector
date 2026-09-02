@@ -135,6 +135,10 @@ console.log('--- 7. 集計 ---');
         doc.querySelectorAll('.stat').length);
   check('ジャンル別の内訳がある', doc.querySelectorAll('.bar-row').length === 4,
         doc.querySelectorAll('.bar-row').length);
+  check('最終更新は収集した時刻を出す（HTMLを組んだ時刻ではない）',
+        doc.querySelector('.updated .stat-value').textContent.trim()
+          === JSON.parse(doc.getElementById('summary-data').textContent).updatedAt,
+        doc.querySelector('.updated .stat-value').textContent);
 }
 
 console.log('--- 8. 件数上限に当たった版 ---');
