@@ -23,7 +23,7 @@ check() {
 # setup_github.sh と同じ判定式
 danger_check() {
   local d
-  d="$(git status --porcelain | grep -iE "browser-profile|Cookies|Login Data|reels\.json|raw_latest|node_modules|\.env" || true)"
+  d="$(git status --porcelain | grep -iE "browser-profile|Cookies|Login Data|reels\.json|raw_latest|node_modules|logs/|_fresh_accounts|dump|\.env" || true)"
   [ -n "$d" ] && return 1 || return 0
 }
 

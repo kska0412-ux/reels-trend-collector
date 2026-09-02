@@ -117,6 +117,36 @@ check "git add に失敗したと言う" "$(grep -c 'git add に失敗' "$W/out1
 check "公開したとは言わない" "$(grep -c '公開しました' "$W/out10.txt")" "0"
 rm -f .git/index.lock
 
+echo "== 11. index に危険なファイルが残っていたら公開しない =="
+# setup_github.sh が中止したあとや、手作業の git add -A のあとを想定する。
+echo "<h1>g</h1>" > docs/index.html
+mkdir -p .browser-profile/Default
+echo "SESSION_COOKIE" > .browser-profile/Default/Cookies
+git add -f .browser-profile/Default/Cookies
+BEFORE="$(git rev-list --count HEAD)"
+bash scripts/publish.sh > "$W/out11.txt" 2>&1
+check "終了コード1" "$?" "1"
+check "中止したと言う" "$(grep -c '公開してはいけないファイル' "$W/out11.txt")" "1"
+check "公開したとは言わない" "$(grep -c '公開しました' "$W/out11.txt")" "0"
+check "コミットは増えていない" "$(git rev-list --count HEAD)" "$BEFORE"
+git reset -q
+rm -rf .browser-profile
+
+echo "== 12. docs/index.html 以外の変更を巻き込まない =="
+# index に無関係なファイルが載っていても、公開するのは docs/index.html だけ。
+echo "<h1>h</h1>" > docs/index.html
+echo "無関係" > unrelated.txt
+git add unrelated.txt
+bash scripts/publish.sh > "$W/out12.txt" 2>&1
+check "終了コード0" "$?" "0"
+check "公開した" "$(grep -c '公開しました' "$W/out12.txt")" "1"
+check "無関係なファイルはリモートに存在しない" \
+  "$(git --git-dir="$W/remote.git" show HEAD:unrelated.txt >/dev/null 2>&1; echo $?)" "128"
+check "無関係なファイルは index に残ったまま" \
+  "$(git diff --cached --name-only | grep -c unrelated.txt)" "1"
+git reset -q
+rm -f unrelated.txt
+
 cd /
 rm -rf "$W"
 echo

@@ -43,11 +43,13 @@ git add -A
 
 echo "== 3. 公開してはいけないファイルが混ざっていないか確認 =="
 # ここが最後の砦。.browser-profile には Instagram のログインCookieが入る。
-DANGER="$(git status --porcelain | grep -iE "browser-profile|Cookies|Login Data|reels\.json|raw_latest|node_modules|\.env" || true)"
+DANGER="$(git status --porcelain | grep -iE "browser-profile|Cookies|Login Data|reels\.json|raw_latest|node_modules|logs/|_fresh_accounts|dump|\.env" || true)"
 if [ -n "$DANGER" ]; then
   echo "  中止します。次のファイルは公開してはいけません:"
   echo "$DANGER"
   echo "  .gitignore を確認してください。"
+  git reset -q
+  echo "  index を戻しました。"
   exit 1
 fi
 echo "  OK: ログインセッション・収集データは除外されています"
