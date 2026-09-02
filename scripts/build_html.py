@@ -554,6 +554,8 @@ def main():
                         help="この日数より古いリールはページに載せない（0で無制限）")
     parser.add_argument("--max-reels", type=int, default=DEFAULT_MAX_REELS,
                         help="ページに載せる最大件数（0で無制限）")
+    parser.add_argument("--allow-empty", action="store_true",
+                        help="0件でも既存のページを上書きする")
     args = parser.parse_args()
 
     if not args.input.exists():
@@ -565,6 +567,14 @@ def main():
     all_rows = build_rows(store)
     rows, aged_out, over_cap = select_rows(all_rows, args.max_age_days, args.max_reels)
     rows.sort(key=_ratio_key)
+
+    # 0件のページで、今ある正しいページを上書きしない。
+    # 蓄積データは .gitignore なのでバックアップが無く、消えたら戻せない。
+    if not rows and not args.allow_empty and args.output.exists() and args.output.stat().st_size > 1024:
+        print(f"[NG] 0 件になりました。既存のページを上書きしません: {args.output}")
+        print(f"     蓄積データを確認してください: {args.input}")
+        print("     意図的に空のページを出すなら --allow-empty を付けてください。")
+        return 1
 
     html = render_html(rows, now_jst_iso()[:16].replace("T", " "), store, len(all_rows))
 

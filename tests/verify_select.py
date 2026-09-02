@@ -186,6 +186,22 @@ with tempfile.TemporaryDirectory() as tmp:
     check("入力が無ければ [NG] を出す", "[NG]" in r.stdout, r.stdout[:200])
     check("入力が無ければHTMLを書かない", not (tmp / "out2.html").exists(), None)
 
+    # 0件のデータで、既にある正しいページを上書きしない
+    empty = tmp / "empty.json"
+    empty.write_text(json.dumps({"reels": {}, "accounts": {}}), encoding="utf-8")
+    good = (tmp / "out.html").read_text(encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, str(BUILD), "--input", str(empty),
+         "--output", str(tmp / "out.html")], capture_output=True, text=True)
+    check("0件なら終了コード1", r.returncode == 1, (r.returncode, r.stdout[:200]))
+    check("0件なら上書きしないと言う", "上書きしません" in r.stdout, r.stdout[:300])
+    check("既存のページが残っている",
+          (tmp / "out.html").read_text(encoding="utf-8") == good, None)
+    r = subprocess.run(
+        [sys.executable, str(BUILD), "--input", str(empty),
+         "--output", str(tmp / "out.html"), "--allow-empty"], capture_output=True, text=True)
+    check("--allow-empty なら上書きする", r.returncode == 0, (r.returncode, r.stdout[:200]))
+
 print("--- 12. タイムゾーンの無い時刻が混ざっても落ちない ---")
 # 実データに1件でも混ざると、以後すべての build_html.py が例外で死ぬ経路だった。
 poisoned = build_fixture(NOW)
