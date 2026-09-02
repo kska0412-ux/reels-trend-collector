@@ -2311,16 +2311,26 @@ check("同じジャンルは重複しない", store["reels"]["111"]["genres"] ==
 check("タグは積み上がる",
       store["reels"]["111"]["hashtags_hit"] == ["ネイルデザイン", "セルフネイル"],
       store["reels"]["111"]["hashtags_hit"])
-merge_reels(store, [reel()], "顔まわり", "スキンケア", T1)
-check("ジャンルも積み上がる", store["reels"]["111"]["genres"] == ["ネイル", "顔まわり"],
+merge_reels(store, [reel()], "アイラッシュ", "まつげパーマ", T1)
+check("ジャンルも積み上がる", store["reels"]["111"]["genres"] == ["ネイル", "アイラッシュ"],
       store["reels"]["111"]["genres"])
 
 print("--- 4. 取れなかった値で既存を上書きしない ---")
+# 見たいのは「None を渡したとき、直前の値が保たれるか」。
+# 直前の値を決め打ちにすると、前の章が値を書き換えたときに壊れる。
+# だからマージ前の値を控えておいて、それと比べる。
+before_likes = store["reels"]["111"]["like_count"]
+before_comments = store["reels"]["111"]["comment_count"]
+check("比較の基準になる値が入っている（この検証が空回りしていないこと）",
+      before_likes is not None and before_comments is not None,
+      (before_likes, before_comments))
 merge_reels(store, [reel(like_count=None, comment_count=None)], "ネイル", "ネイルデザイン", T1)
-check("いいねが None で潰されない", store["reels"]["111"]["like_count"] == 15000,
-      store["reels"]["111"]["like_count"])
-check("コメントが None で潰されない", store["reels"]["111"]["comment_count"] == 89,
-      store["reels"]["111"]["comment_count"])
+check("いいねが None で潰されない",
+      store["reels"]["111"]["like_count"] == before_likes,
+      (store["reels"]["111"]["like_count"], before_likes))
+check("コメントが None で潰されない",
+      store["reels"]["111"]["comment_count"] == before_comments,
+      (store["reels"]["111"]["comment_count"], before_comments))
 
 print("--- 5. id が無いものは捨てる ---")
 store2 = empty_store()
