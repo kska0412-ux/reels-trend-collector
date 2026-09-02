@@ -170,5 +170,47 @@ console.log("--- 12. 深すぎるネストは打ち切る ---");
   check("浅ければ拾う", findReels(nested, { maxDepth: 200 }).length === 1, null);
 }
 
+console.log("--- 13. 代替キーへのフォールバック ---");
+{
+  // id: pk が無い場合の代替キー。実データがどのキーで来るか未確定のため、
+  // 優先順と型変換の両方を押さえておく。
+  const byId = findReels({ x: reel({ pk: undefined, id: "id_string" }) });
+  check("pkが無ければ id を使う", byId.length === 1 && byId[0].id === "id_string", byId);
+  const byPkId = findReels({ x: reel({ pk: undefined, id: undefined, pk_id: "pkid_string" }) });
+  check("pk も id も無ければ pk_id を使う",
+        byPkId.length === 1 && byPkId[0].id === "pkid_string", byPkId);
+  const numericPk = findReels({ x: reel({ pk: 12345 }) });
+  check("数値の pk は文字列になる",
+        numericPk.length === 1 && numericPk[0].id === "12345", numericPk);
+  const priority = findReels({ x: reel({ pk: "from_pk", id: "from_id" }) });
+  check("pk が id より優先される", priority[0].id === "from_pk", priority[0].id);
+
+  // caption: 置き場所のゆれ
+  const strCap = findReels({ x: reel({ pk: "c1", caption: "文字列のcaption" }) });
+  check("captionが文字列でも拾える", strCap[0].caption === "文字列のcaption", strCap[0].caption);
+  const textKey = findReels({ x: reel({ pk: "c2", caption: undefined, text: "textキーの本文" }) });
+  check("o.text からも拾える", textKey[0].caption === "textキーの本文", textKey[0].caption);
+
+  // timestamp: taken_at 以外のキー
+  const tsAlt = findReels({ x: reel({ pk: "t1", taken_at: undefined, taken_at_timestamp: 1756500000 }) });
+  const tsBase = findReels({ x: reel({ pk: "t2", taken_at: 1756500000 }) });
+  check("taken_at_timestamp でも同じ時刻になる",
+        tsAlt[0].timestamp === tsBase[0].timestamp, [tsAlt[0].timestamp, tsBase[0].timestamp]);
+  const tsDev = findReels({ x: reel({ pk: "t3", taken_at: undefined, device_timestamp: 1756500000 }) });
+  check("device_timestamp でも拾える",
+        tsDev[0].timestamp === tsBase[0].timestamp, tsDev[0].timestamp);
+  const tsStr = findReels({ x: reel({ pk: "t4", taken_at: undefined, timestamp: "2026-08-30T12:00:00+0000" }) });
+  check("文字列の timestamp はそのまま通す",
+        tsStr[0].timestamp === "2026-08-30T12:00:00+0000", tsStr[0].timestamp);
+
+  // num(): 数値でない値は null にする（0 で埋めない）
+  const strLike = findReels({ x: reel({ pk: "n1", like_count: "12400" }) });
+  check("文字列の like_count は null（0で埋めない）",
+        strLike[0].like_count === null, strLike[0].like_count);
+  const strComment = findReels({ x: reel({ pk: "n2", comment_count: "89" }) });
+  check("文字列の comment_count は null",
+        strComment[0].comment_count === null, strComment[0].comment_count);
+}
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);
