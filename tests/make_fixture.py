@@ -13,12 +13,14 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from common import JST  # noqa: E402
 
-GENRES = ["ネイル", "顔まわり", "まつげ・眉・メイク", "髪・脱毛・痩身"]
+GENRES = ["ネイル", "アイラッシュ", "眉毛", "脱毛", "痩身", "髪"]
 TAGS = {
     "ネイル": "ネイルデザイン",
-    "顔まわり": "小顔",
-    "まつげ・眉・メイク": "まつげパーマ",
-    "髪・脱毛・痩身": "医療脱毛",
+    "アイラッシュ": "まつげパーマ",
+    "眉毛": "眉毛サロン",
+    "脱毛": "医療脱毛",
+    "痩身": "痩身エステ",
+    "髪": "育毛",
 }
 
 
@@ -28,7 +30,7 @@ def build(now):
 
     # 1〜24: 普通のリール。ジャンルを4種に散らし、経過日数も散らす。
     for i in range(1, 25):
-        genre = GENRES[i % 4]
+        genre = GENRES[i % len(GENRES)]
         username = f"creator_{i:02d}"
         days_ago = i * 3                      # 3〜72日前
         plays = 500_000 - i * 15_000
@@ -72,7 +74,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE026/",
         "play_count": 10_000, "like_count": 500, "comment_count": 10,
-        "genres": ["顔まわり"], "hashtags_hit": ["小顔"],
+        "genres": ["アイラッシュ"], "hashtags_hit": ["まつげパーマ"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["tiny_account"] = {"follower_count": 20, "fetched_at": now.isoformat()}
@@ -97,7 +99,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE028/",
         "play_count": 800_000, "like_count": 30_000, "comment_count": 500,
-        "genres": ["髪・脱毛・痩身"], "hashtags_hit": ["育毛"],
+        "genres": ["髪"], "hashtags_hit": ["育毛"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["old_reel"] = {"follower_count": 2_000, "fetched_at": now.isoformat()}

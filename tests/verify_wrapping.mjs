@@ -71,12 +71,7 @@ const allUnits = [...doc.querySelectorAll('.nb')].map(e => e.textContent.trim())
 const startsWithParticle = allUnits.filter(t => PARTICLES.some(p => t.startsWith(p)));
 check('助詞で始まるかたまりが無い', startsWithParticle.length === 0, startsWithParticle);
 
-console.log('--- 5. 見出しのジャンル表記 ---');
-const verUnits = [...doc.querySelectorAll('.ver .nb')].map(e => e.textContent);
-check('読点の位置でだけ改行できる（4かたまり）', verUnits.length === 4, verUnits);
-check('ジャンル名が途中で割れない', verUnits.every(u => !/^[、\s]/.test(u)), verUnits);
-
-console.log('--- 6. 注記も文節で括られている ---');
+console.log('--- 5. 注記も文節で括られている ---');
 const ratioUnits = [...doc.querySelectorAll('.note-ratio .nb')].map(e => e.textContent);
 check('伸び率の注記が文節ごとに分かれている', ratioUnits.length >= 8, ratioUnits);
 check('「フォロワー数で」が1かたまり', ratioUnits.includes('フォロワー数で'), ratioUnits);
@@ -84,11 +79,7 @@ check('注記の全文が .nb に収まっている',
       ratioUnits.join('') === doc.querySelector('.note-ratio').textContent,
       ratioUnits.join(''));
 
-const thumbUnits = [...doc.querySelectorAll('.note-thumb .nb')].map(e => e.textContent);
-check('サムネ注記が文節ごとに分かれている', thumbUnits.length === 4, thumbUnits);
-check('「サムネイル画像は」が1かたまり', thumbUnits.includes('サムネイル画像は'), thumbUnits);
-
-console.log('--- 7. ライトとダークで同じトークンが定義されている ---');
+console.log('--- 6. ライトとダークで同じトークンが定義されている ---');
 // jsdom は CSS を評価しないので、テキストとして3ブロックを抜き出して比べる。
 // 片方だけ色を足す変更が入ると、その閲覧環境だけ色が抜ける。
 function tokensIn(selector) {

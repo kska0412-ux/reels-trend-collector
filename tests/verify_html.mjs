@@ -52,12 +52,11 @@ console.log('--- 2. カードが描画される ---');
 console.log('--- 3. ジャンルタブ ---');
 {
   const tabs = [...doc.querySelectorAll('.tab')];
-  check('タブが5個（全部 + 4ジャンル）', tabs.length === 5, tabs.map(t => t.textContent));
+  check('タブが7個（全部 + 6ジャンル）', tabs.length === 7, tabs.map(t => t.textContent));
   check('先頭は「全部」', tabs[0].textContent.includes('全部'), tabs[0].textContent);
 
   const before = visible().length;
-  const nail = tabs.find(t => t.textContent.includes('ネイル')
-                              && !t.textContent.includes('まつげ'));
+  const nail = tabs.find(t => t.textContent.trim() === 'ネイル');
   click(nail);
   const after = visible();
   check('ネイルタブで件数が減る', after.length > 0 && after.length < before,
@@ -133,7 +132,7 @@ console.log('--- 7. 集計 ---');
   check('集計パネルがある', doc.querySelector('.summary') !== null, null);
   check('統計タイルが4枚', doc.querySelectorAll('.stat').length === 4,
         doc.querySelectorAll('.stat').length);
-  check('ジャンル別の内訳がある', doc.querySelectorAll('.bar-row').length === 4,
+  check('ジャンル別の内訳がある', doc.querySelectorAll('.bar-row').length === 6,
         doc.querySelectorAll('.bar-row').length);
   check('最終更新は収集した時刻を出す（HTMLを組んだ時刻ではない）',
         doc.querySelector('.updated .stat-value').textContent.trim()

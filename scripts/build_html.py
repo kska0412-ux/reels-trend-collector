@@ -235,7 +235,6 @@ TEMPLATE_HEAD = r"""
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
 
   h1 { font-size: clamp(1.3rem, 4vw, 1.8rem); line-height: 1.4; margin: 0; }
-  .ver { display: block; font-size: .74rem; font-weight: 400; color: var(--muted); margin-top: 6px; }
   .updated { font-size: .76rem; color: var(--muted); margin: 10px 0 0; }
 
   .panel {
@@ -330,7 +329,7 @@ TEMPLATE_HEAD = r"""
 
 TEMPLATE_BODY = r"""
 <div class="wrap">
-  <h1>Instagram リール Research Tool<span class="ver"><span class="nb">ネイル、</span><span class="nb">顔まわり、</span><span class="nb">まつげ・眉・メイク、</span><span class="nb">髪・脱毛・痩身 ver</span></span></h1>
+  <h1>Instagram リール Research Tool</h1>
 
   <p class="updated"><span class="nb">最終更新</span> <span class="stat-value">__GENERATED__</span> <span class="nb">/ 全 __COUNT__ 件</span></p>
 
@@ -343,7 +342,6 @@ TEMPLATE_BODY = r"""
   </div>
 
   <p class="note note-ratio"><span class="nb">伸び率は</span><span class="nb">再生数を</span><span class="nb">フォロワー数で</span><span class="nb">割った</span><span class="nb">値です。</span><span class="nb">フォロワーが</span><span class="nb">500人未満の</span><span class="nb">アカウントは</span><span class="nb">500人として</span><span class="nb">計算しています。</span></p>
-  <p class="note note-thumb"><span class="nb">サムネイル画像は</span><span class="nb">数時間で</span><span class="nb">失効するため</span><span class="nb">表示していません。</span></p>
 
   <div class="controls">
     <div class="tabs" id="tabs"></div>
