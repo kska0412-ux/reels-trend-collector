@@ -125,9 +125,29 @@ async function runLogin() {
 /** ログイン画面に飛ばされていないか確かめる。飛ばされていたら続行不能。 */
 function assertLoggedIn(page) {
   const url = page.url();
-  if (url.includes("/accounts/login") || url.includes("/challenge")) {
+
+  // チャレンジとログアウトは原因も対処も違う。同じ文言でまとめると誤診する。
+  // isFatal は「ログインしていません」を含むかで判定するので、その語は必ず残す。
+  if (url.includes("/challenge")) {
     throw new Error(
-      "ログインしていません。node scripts/scrape.mjs --login を先に実行してください。"
+      "ログインしていません（本人確認を求められています）。\n" +
+      `  飛ばされた先: ${url}\n` +
+      "  Instagram がこの端末からのアクセスを自動操作とみなしています。\n" +
+      "  対処: 普段使いのブラウザで instagram.com を開き、本人確認を済ませてください。\n" +
+      "        そのうえで数時間から1日ほど間を空けてから再実行してください。\n" +
+      "        続けて叩くと判定が強まります。"
+    );
+  }
+
+  if (url.includes("/accounts/login")) {
+    throw new Error(
+      "ログインしていません（セッションが切れています）。\n" +
+      `  飛ばされた先: ${url}\n` +
+      "  対処: 普段使いのブラウザで instagram.com を開き、開発者ツール →\n" +
+      "        Application → Cookies → https://www.instagram.com から\n" +
+      "        sessionid の値をコピーして data/ig_session.json に保存してください:\n" +
+      '          {"sessionid": "コピーした値"}\n' +
+      "        これならログイン画面を通らずに済みます。"
     );
   }
 }
