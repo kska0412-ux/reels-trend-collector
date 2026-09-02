@@ -15,7 +15,11 @@ echo "===== 1. リール抽出ロジック ====="
 node "$ROOT/tests/verify_extract_reel.mjs"
 
 echo
-echo "===== 2. 公開の安全性 ====="
+echo "===== 2. フォロワー数の抽出 ====="
+node "$ROOT/tests/verify_extract_profile.mjs"
+
+echo
+echo "===== 3. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 
 echo
