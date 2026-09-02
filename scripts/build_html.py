@@ -202,7 +202,7 @@ TEMPLATE_HEAD = r"""
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- 公開リポジトリで配信するため、検索結果には出さない -->
 <meta name="robots" content="noindex, nofollow">
-<title>Instagram リール Research Tool（美容ジャンル ver）</title>
+<title>Instagram Reel Research Tool</title>
 <style>
   /* 明るい側を基準に全トークンを定義する。暗い側は下で上書きする。 */
   :root {
@@ -349,7 +349,7 @@ TEMPLATE_HEAD = r"""
 
 TEMPLATE_BODY = r"""
 <div class="wrap">
-  <h1>Instagram リール Research Tool</h1>
+  <h1>Instagram Reel Research Tool</h1>
 
   <p class="updated"><span class="nb">最終更新</span> <span class="stat-value">__GENERATED__</span> <span class="nb">/ 全 __COUNT__ 件</span></p>
 

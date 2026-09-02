@@ -57,7 +57,7 @@ echo "  OK: ログインセッション・収集データは除外されてい�
 if git rev-parse HEAD >/dev/null 2>&1 && git diff --cached --quiet; then
   echo "  変更なし。コミットは省略します。"
 else
-  git commit -q -m "Instagram リール Research Tool"
+  git commit -q -m "Instagram Reel Research Tool"
   echo "  コミットしました。"
 fi
 
@@ -70,7 +70,7 @@ elif gh repo view "$OWNER/$REPO_NAME" >/dev/null 2>&1; then
 else
   # GitHub Pages の無料枠は公開リポジトリのみ。
   gh repo create "$REPO_NAME" --public \
-    --description "Instagram リール Research Tool（美容ジャンル ver）"
+    --description "Instagram Reel Research Tool"
   git remote add origin "https://github.com/$OWNER/$REPO_NAME.git"
   echo "  作成しました。"
 fi
