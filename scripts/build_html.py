@@ -177,15 +177,352 @@ def render_html(rows, generated_at, store, archived):
     )
 
 
-# Task 10 で本物のテンプレートに差し替える。今はロジックを検証するための最小版。
-TEMPLATE = r"""<meta charset="utf-8">
-<title>Instagram リール Research Tool</title>
+# --- HTML テンプレート ---
+# 生成が長くなるため、head（meta + style）/ body / script の3つに分けて組み立てる。
+# 中身の互いの依存はなく、最後に単純に連結するだけ。
+
+TEMPLATE_HEAD = r"""
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 公開リポジトリで配信するため、検索結果には出さない -->
+<meta name="robots" content="noindex, nofollow">
+<title>Instagram リール Research Tool（美容ジャンル ver）</title>
+<style>
+  /* 明るい側を基準に全トークンを定義する。暗い側は下で上書きする。 */
+  :root {
+    --bg: #f6f4f5; --surface: #ffffff; --surface-2: #fbf9fa;
+    --ink: #231c22; --muted: #6f636c; --border: #e4dee2;
+    --accent: #8b2f5f; --accent-soft: #f7e9f0;
+    --hot: #0f7b6c; --hot-soft: #e2f2ef;
+    --chip: #efeaed; --focus: #8b2f5f;
+  }
+  /* OS が暗いとき。ただし閲覧者が明るいテーマを選んでいたらそちらを優先する。 */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151114; --surface: #1f1a1e; --surface-2: #241e23;
+      --ink: #f0eaee; --muted: #a3969e; --border: #332b31;
+      --accent: #e086b0; --accent-soft: #3a2130;
+      --hot: #4fc3ae; --hot-soft: #16332e;
+      --chip: #2c2429; --focus: #e086b0;
+    }
+  }
+  /* 閲覧者が暗いテーマを選んだとき。OS の設定に関係なく効かせる。 */
+  :root[data-theme="dark"] {
+    --bg: #151114; --surface: #1f1a1e; --surface-2: #241e23;
+    --ink: #f0eaee; --muted: #a3969e; --border: #332b31;
+    --accent: #e086b0; --accent-soft: #3a2130;
+    --hot: #4fc3ae; --hot-soft: #16332e;
+    --chip: #2c2429; --focus: #e086b0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    /* 透明のままだと閲覧側の地の色を借りてしまうので必ず塗る */
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+                 -apple-system, BlinkMacSystemFont, "Yu Gothic Medium", sans-serif;
+    line-height: 1.75;
+    font-feature-settings: "palt" 1;
+    /* 単語の途中では折らない。あふれた時だけ折る。日本語の禁則を強める。 */
+    word-break: normal;
+    overflow-wrap: break-word;
+    line-break: strict;
+  }
+
+  /* 自前の文言を文節ごとに括るための箱。ここで改行させない。 */
+  .nb { white-space: nowrap; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 96px; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+
+  h1 { font-size: clamp(1.3rem, 4vw, 1.8rem); line-height: 1.4; margin: 0; }
+  .ver { display: block; font-size: .74rem; font-weight: 400; color: var(--muted); margin-top: 6px; }
+  .updated { font-size: .76rem; color: var(--muted); margin: 10px 0 0; }
+
+  .panel {
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    background: var(--surface); margin: 24px 0 8px;
+  }
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); }
+  @media (max-width: 620px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+  .stat { background: var(--surface); padding: 12px 14px; }
+  .stat-label { display: block; font-size: .7rem; color: var(--muted); margin-bottom: 4px; }
+  .stat-value { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .breakdown { padding: 14px 16px 16px; border-top: 1px solid var(--border); }
+  .breakdown-title { font-size: .7rem; color: var(--muted); margin: 0 0 10px; }
+  .bar-row { display: grid; grid-template-columns: 7em 1fr auto; gap: 10px; align-items: center; }
+  .bar-row + .bar-row { margin-top: 7px; }
+  .bar-name { font-size: .76rem; }
+  .bar-track { height: 6px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; background: var(--accent); }
+  .bar-count { font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .note { font-size: .74rem; color: var(--muted); margin: 10px 0 0; }
+
+  .controls {
+    position: sticky; top: 0; z-index: 10; background: var(--bg);
+    padding: 14px 0; border-bottom: 1px solid var(--border); margin: 18px 0;
+  }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .tab {
+    font: inherit; font-size: .8rem; padding: 5px 13px;
+    border: 1px solid var(--border); border-radius: 999px;
+    background: var(--surface); color: var(--muted); cursor: pointer;
+  }
+  .tab.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .sorts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .sort-btn {
+    font: inherit; font-size: .8rem; padding: 5px 13px;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--muted); cursor: pointer;
+  }
+  .sort-btn.on { background: var(--hot-soft); border-color: var(--hot); color: var(--hot); font-weight: 700; }
+  #q {
+    font: inherit; font-size: .82rem; padding: 7px 11px; width: 100%;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: var(--surface); color: var(--ink); margin-bottom: 8px;
+  }
+  .count { display: block; font-size: .76rem; color: var(--muted); }
+
+  #list { display: flex; flex-direction: column; gap: 10px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .ratio { font-size: .9rem; font-weight: 700; color: var(--accent); }
+  .user { font-weight: 700; font-size: .84rem; }
+  .followers { margin-left: auto; font-size: .74rem; color: var(--muted); }
+  .metrics { display: flex; flex-wrap: wrap; gap: 10px; font-size: .74rem; color: var(--muted); margin-bottom: 8px; }
+  .metric { white-space: nowrap; }
+
+  /* --- 収集したキャプション。他人の文章なので .nb で括らない --- */
+  .caption {
+    word-break: normal;
+    overflow-wrap: break-word;
+    line-break: strict;
+    color: var(--muted);
+    font-size: .88rem;
+    white-space: pre-wrap;
+    margin: 0 0 10px;
+  }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .tag { font-size: .7rem; padding: 3px 9px; border-radius: 4px; background: var(--chip); color: var(--muted); }
+  .link { margin-left: auto; font-size: .76rem; color: var(--accent); text-decoration: none; font-weight: 700; }
+  .link:hover { text-decoration: underline; }
+
+  .empty { text-align: center; color: var(--muted); padding: 56px 20px; font-size: .88rem; }
+
+  /* --- 短いラベルは丸ごと割れないようにする --- */
+  .stat-value  { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .stat-label  { white-space: nowrap; }
+  .count       { white-space: nowrap; }
+  .tag         { white-space: nowrap; }
+  .link        { white-space: nowrap; }
+  .ratio       { white-space: nowrap; }
+  .metric      { white-space: nowrap; }
+  .followers   { white-space: nowrap; }
+  .bar-name    { white-space: nowrap; }
+  .bar-count   { white-space: nowrap; }
+  .breakdown-title { white-space: nowrap; }
+  .sort-btn    { white-space: nowrap; }
+  .tab         { white-space: nowrap; }
+</style>
+"""
+
+TEMPLATE_BODY = r"""
+<div class="wrap">
+  <h1>Instagram リール Research Tool<span class="ver"><span class="nb">ネイル、</span><span class="nb">顔まわり、</span><span class="nb">まつげ・眉・メイク、</span><span class="nb">髪・脱毛・痩身 ver</span></span></h1>
+
+  <p class="updated"><span class="nb">最終更新</span> <span class="stat-value">__GENERATED__</span> <span class="nb">/ 全 __COUNT__ 件</span></p>
+
+  <div class="panel">
+    <div class="summary" id="summary"></div>
+    <div class="breakdown">
+      <p class="breakdown-title">ジャンル別の内訳</p>
+      <div id="breakdown"></div>
+    </div>
+  </div>
+
+  <p class="note note-ratio"><span class="nb">伸び率は</span><span class="nb">再生数を</span><span class="nb">フォロワー数で</span><span class="nb">割った</span><span class="nb">値です。</span><span class="nb">フォロワーが</span><span class="nb">500人未満の</span><span class="nb">アカウントは</span><span class="nb">500人として</span><span class="nb">計算しています。</span></p>
+  <p class="note note-thumb"><span class="nb">サムネイル画像は</span><span class="nb">数時間で</span><span class="nb">失効するため</span><span class="nb">表示していません。</span></p>
+
+  <div class="controls">
+    <div class="tabs" id="tabs"></div>
+    <div class="sorts">
+      <button type="button" class="sort-btn on" data-sort="ratio">伸び率順</button>
+      <button type="button" class="sort-btn" data-sort="plays">再生数順</button>
+      <button type="button" class="sort-btn" data-sort="posted">新着順</button>
+    </div>
+    <input type="search" id="q" placeholder="キャプション・アカウント名で絞り込む">
+    <span class="count" id="count"></span>
+  </div>
+
+  <div id="list"></div>
+</div>
+"""
+
+TEMPLATE_SCRIPT = r"""
 <script id="data" type="application/json">__DATA__</script>
 <script id="genres" type="application/json">__GENRES__</script>
 <script id="hashtags" type="application/json">__HASHTAGS__</script>
-<script id="summary" type="application/json">__SUMMARY__</script>
-<p>生成: __GENERATED__ / __COUNT__ 件</p>
+<script id="summary-data" type="application/json">__SUMMARY__</script>
+
+<script>
+(function () {
+  var ROWS = JSON.parse(document.getElementById('data').textContent);
+  var GENRES = JSON.parse(document.getElementById('genres').textContent);
+  var SUMMARY = JSON.parse(document.getElementById('summary-data').textContent);
+
+  var state = { genre: null, sort: 'ratio', q: '' };
+
+  function num(v) { return v === null || v === undefined ? '—' : v.toLocaleString(); }
+
+  function ago(hours) {
+    if (hours === null || hours === undefined) return '—';
+    if (hours < 24) return Math.round(hours) + '時間前';
+    return Math.round(hours / 24) + '日前';
+  }
+
+  /* --- 集計パネル --- */
+  var STATS = [
+    ['総リール数', SUMMARY.total],
+    ['伸び率100倍超', SUMMARY.over100],
+    ['今週の投稿', SUMMARY.thisWeek],
+    ['アカウント数', SUMMARY.authors]
+  ];
+  document.getElementById('summary').innerHTML = STATS.map(function (s) {
+    return '<div class="stat"><div class="stat-value">' + s[1].toLocaleString() +
+           '</div><div class="stat-label">' + s[0] + '</div></div>';
+  }).join('');
+
+  var maxGenre = SUMMARY.genres.length ? SUMMARY.genres[0][1] : 1;
+  document.getElementById('breakdown').innerHTML = SUMMARY.genres.map(function (g) {
+    var pct = Math.round(g[1] / maxGenre * 100);
+    return '<div class="bar-row"><span class="bar-name">' + g[0] +
+           '</span><span class="bar-track"><span class="bar-fill" style="width:' + pct +
+           '%"></span></span><span class="bar-count">' + g[1] + '</span></div>';
+  }).join('');
+
+  /* --- ジャンルタブ --- */
+  var tabs = document.getElementById('tabs');
+  tabs.innerHTML = ['全部'].concat(GENRES).map(function (g, i) {
+    return '<button type="button" class="tab' + (i === 0 ? ' on' : '') +
+           '" data-genre="' + (i === 0 ? '' : g) + '">' + g + '</button>';
+  }).join('');
+  tabs.addEventListener('click', function (e) {
+    var b = e.target.closest('.tab');
+    if (!b) return;
+    state.genre = b.dataset.genre || null;
+    [].forEach.call(tabs.querySelectorAll('.tab'), function (t) {
+      t.classList.toggle('on', t === b);
+    });
+    render();
+  });
+
+  /* --- 並び替え --- */
+  var sorts = document.querySelector('.sorts');
+  sorts.addEventListener('click', function (e) {
+    var b = e.target.closest('.sort-btn');
+    if (!b) return;
+    state.sort = b.dataset.sort;
+    [].forEach.call(sorts.querySelectorAll('.sort-btn'), function (t) {
+      t.classList.toggle('on', t === b);
+    });
+    render();
+  });
+
+  document.getElementById('q').addEventListener('input', function (e) {
+    state.q = e.target.value.trim().toLowerCase();
+    render();
+  });
+
+  /* --- カードを一度だけ組み立てて、以後は表示・非表示と並べ替えだけする --- */
+  var list = document.getElementById('list');
+  var cards = ROWS.map(function (r) {
+    var el = document.createElement('article');
+    el.className = 'card';
+    el.dataset.genres = r.genres.join('|');
+    /* 取れていない値は空文字にする。0 と書くと「0だった」と読めてしまう。 */
+    el.dataset.ratio = r.ratio === null ? '' : String(r.ratio);
+    el.dataset.plays = r.plays === null ? '' : String(r.plays);
+    el.dataset.posted = r.postedAt || '';
+    el.innerHTML =
+      '<div class="head">' +
+        '<span class="ratio">' + (r.ratio === null ? '—' : '×' + r.ratio) + '</span>' +
+        '<span class="user">@' + r.username + '</span>' +
+        '<span class="followers">フォロワー ' + num(r.followers) + '</span>' +
+      '</div>' +
+      '<div class="metrics">' +
+        '<span class="metric">再生 ' + num(r.plays) + '</span>' +
+        '<span class="metric">いいね ' + num(r.likes) + '</span>' +
+        '<span class="metric">コメント ' + num(r.comments) + '</span>' +
+        '<span class="metric">' + ago(r.ageHours) + '</span>' +
+      '</div>' +
+      '<p class="caption"></p>' +
+      '<div class="tags">' + r.hashtags.map(function (h) {
+        return '<span class="tag">#' + h + '</span>';
+      }).join('') + '</div>' +
+      '<a class="link" target="_blank" rel="noopener noreferrer" href="' +
+        r.permalink + '">リールを開く</a>';
+    /* キャプションは他人の文章。HTMLとして解釈させない。 */
+    el.querySelector('.caption').textContent = r.caption;
+    el.__row = r;
+    return el;
+  });
+  cards.forEach(function (c) { list.appendChild(c); });
+
+  function keyOf(r) {
+    if (state.sort === 'plays') return r.plays;
+    if (state.sort === 'posted') return r.postedAt || null;
+    return r.ratio;
+  }
+
+  function render() {
+    var shown = cards.filter(function (c) {
+      var r = c.__row;
+      if (state.genre && r.genres.indexOf(state.genre) < 0) return false;
+      if (state.q) {
+        var hay = (r.caption + ' ' + r.username).toLowerCase();
+        if (hay.indexOf(state.q) < 0) return false;
+      }
+      return true;
+    });
+
+    /* 取れていない値は必ず末尾に回す。0 として上位に混ぜない。 */
+    shown.sort(function (a, b) {
+      var x = keyOf(a.__row), y = keyOf(b.__row);
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return x > y ? -1 : x < y ? 1 : 0;
+    });
+
+    cards.forEach(function (c) { c.style.display = 'none'; });
+    shown.forEach(function (c) { c.style.display = ''; list.appendChild(c); });
+
+    var old = list.querySelector('.empty');
+    if (old) old.remove();
+    if (shown.length === 0) {
+      var p = document.createElement('p');
+      p.className = 'empty';
+      p.innerHTML = ['条件に', '合う', 'リールが', 'ありません。',
+                     '絞り込みを', '外して', 'みてください。']
+        .map(function (u) { return '<span class="nb">' + u + '</span>'; }).join('');
+      list.appendChild(p);
+    }
+
+    document.getElementById('count').textContent = shown.length + ' 件';
+  }
+
+  render();
+})();
+</script>
 """
+
+TEMPLATE = TEMPLATE_HEAD + TEMPLATE_BODY + TEMPLATE_SCRIPT
 
 
 def main():
