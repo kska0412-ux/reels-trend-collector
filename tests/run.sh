@@ -30,11 +30,15 @@ echo "===== 4. 伸び率の計算 ====="
 python3 "$ROOT/tests/verify_ratio.py"
 
 echo
-echo "===== 5. 表示範囲の絞り込み ====="
+echo "===== 5. マージ処理 ====="
+python3 "$ROOT/tests/verify_merge.py"
+
+echo
+echo "===== 6. 表示範囲の絞り込み ====="
 python3 "$ROOT/tests/verify_select.py"
 
 echo
-echo "===== 6. HTML生成 ====="
+echo "===== 7. HTML生成 ====="
 python3 "$ROOT/tests/make_fixture.py" --output "$WORK/fixture_reels.json"
 python3 "$ROOT/scripts/build_html.py" --input "$WORK/fixture_reels.json" \
   --output "$WORK/preview.html"
@@ -48,15 +52,15 @@ python3 "$ROOT/scripts/build_html.py" --input "$WORK/fixture_hostile.json" \
 SCRATCH="$WORK" node "$ROOT/tests/verify_html.mjs"
 
 echo
-echo "===== 7. 改行の作法 ====="
+echo "===== 8. 改行の作法 ====="
 SCRATCH="$WORK" node "$ROOT/tests/verify_wrapping.mjs"
 
 echo
-echo "===== 8. 公開判定 ====="
+echo "===== 9. 公開判定 ====="
 bash "$ROOT/tests/verify_publish.sh"
 
 echo
-echo "===== 9. 公開の安全性 ====="
+echo "===== 10. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 
 echo
