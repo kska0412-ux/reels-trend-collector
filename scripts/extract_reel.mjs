@@ -169,6 +169,23 @@ export function parsePayloads(body) {
       // 壊れた行は捨てる
     }
   }
+
+  // Instagram は最初の1ページぶんを HTML の中の
+  // <script type="application/json"> に埋め込んで返す。
+  // 行の先頭が '<' なので上のループでは拾えない。ここで取り出す。
+  // 実データで確認済み: この経路を通さないとリールが1件も取れない。
+  for (const m of trimmed.matchAll(
+    /<script[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi
+  )) {
+    const s = m[1].trim();
+    if (!s || (s[0] !== "{" && s[0] !== "[")) continue;
+    try {
+      out.push(JSON.parse(s));
+    } catch {
+      // 壊れたブロックは捨てる
+    }
+  }
+
   return out;
 }
 

@@ -219,5 +219,36 @@ console.log("--- 13. 代替キーへのフォールバック ---");
         strComment[0].comment_count === null, strComment[0].comment_count);
 }
 
+console.log("--- 14. HTMLに埋め込まれたJSONから拾う ---");
+{
+  // Instagram は最初の1ページぶんを HTML の中の
+  // <script type="application/json"> に入れて返す。実データで確認済み。
+  // ここを読めないとリールが1件も取れない（実際にそうなった）。
+  const payload = JSON.stringify({ items: [reel({ pk: "html1" })] });
+  const html = `<!DOCTYPE html><html><head><title>t</title></head><body>` +
+    `<script type="application/json" data-sjs>${payload}</script>` +
+    `</body></html>`;
+  const got = extractFromBody(html);
+  check("HTMLの中のJSONからリールを拾える", got.length === 1, got.length);
+  check("中身も正しい", got.length === 1 && got[0].id === "html1", got[0] && got[0].id);
+
+  // 属性の書き方や順序が変わっても拾えること
+  const singleQuoted = `<script data-x type='application/json'>${payload}</script>`;
+  check("シングルクォートの属性でも拾える",
+        extractFromBody(singleQuoted).length === 1, extractFromBody(singleQuoted).length);
+
+  // 実際のページは JSON ブロックを数十個持ち、大半はリールと無関係
+  const many = `<script type="application/json">{"noise":1}</script>` +
+    `<script type="application/json">${payload}</script>` +
+    `<script type="application/json">こわれている</script>`;
+  check("無関係なブロックや壊れたブロックが混ざっても拾える",
+        extractFromBody(many).length === 1, extractFromBody(many).length);
+
+  // 実行される script は読まない（データではないため）
+  const runnable = `<script>var x = ${payload};</script>`;
+  check("type の無い script は読まない", extractFromBody(runnable).length === 0,
+        extractFromBody(runnable).length);
+}
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);

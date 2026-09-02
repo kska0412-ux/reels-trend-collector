@@ -29,10 +29,16 @@ import { extractFromBody } from "./extract_reel.mjs";
 import { extractFollowerCount } from "./extract_profile.mjs";
 import { collectWithRetry, isFatal } from "./retry.mjs";
 import { parseArgs, loadTagPairs, loadSkipAccounts } from "./scrape_args.mjs";
+import { loadSessionCookies, describeSession } from "./session.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 const PROFILE_DIR = path.join(ROOT, ".browser-profile");
+
+// 普段使いのブラウザから受け取ったセッション。ログイン画面を通らずに済ませるため。
+// data/ は .gitignore 済みなので、ここに置けば公開リポジトリには出ない。
+const SESSION_FILE = process.env.IG_SESSION_FILE
+  || path.join(ROOT, "data", "ig_session.json");
 
 // ハッシュタグページのURL。Instagram側の仕様が変わったらここを直す。
 const TAG_URL = (tag) =>
@@ -78,8 +84,9 @@ async function openContext({ headful }) {
   };
   if (executablePath) options.executablePath = executablePath;
 
+  let context;
   try {
-    return await chromium.launchPersistentContext(PROFILE_DIR, options);
+    context = await chromium.launchPersistentContext(PROFILE_DIR, options);
   } catch (e) {
     const msg = e.message.split("\n")[0];
     throw new Error(
@@ -88,6 +95,15 @@ async function openContext({ headful }) {
       `  IG_CHROME_PATH に Chrome の実行ファイルを指定してください。`
     );
   }
+
+  // 普段使いのブラウザから受け取ったセッションがあれば注入する。
+  // これがあるとログイン画面に一度も触れずに済む。
+  const cookies = loadSessionCookies(SESSION_FILE);
+  if (cookies) {
+    await context.addCookies(cookies);
+    console.log(describeSession(cookies));
+  }
+  return context;
 }
 
 /** 手動ログイン用。ブラウザを開いて、閉じられるまで待つ。 */
