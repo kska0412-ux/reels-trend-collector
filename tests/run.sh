@@ -11,7 +11,11 @@ mkdir -p "$WORK"
 # jsdom は HTML のテスト（Task 10 で追加）が来たときに、その章が自前で用意する。
 # 今ぶら下がっているテストはどれも jsdom を使わないので、ここでは取得しない。
 
-echo "===== 1. 公開の安全性 ====="
+echo "===== 1. リール抽出ロジック ====="
+node "$ROOT/tests/verify_extract_reel.mjs"
+
+echo
+echo "===== 2. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 
 echo
