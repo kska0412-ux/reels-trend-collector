@@ -27,7 +27,11 @@ echo "===== 4. 伸び率の計算 ====="
 python3 "$ROOT/tests/verify_ratio.py"
 
 echo
-echo "===== 5. 公開の安全性 ====="
+echo "===== 5. 表示範囲の絞り込み ====="
+python3 "$ROOT/tests/verify_select.py"
+
+echo
+echo "===== 6. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 
 echo
