@@ -8,7 +8,10 @@ build_html.py のデータ組み立てと絞り込みを検証する。
   3. 件数を絞るとき、伸び率上位と新着上位を半分ずつ確保する
   4. 何件をどの理由で落としたかを返す（黙って捨てない）
 """
+import json
+import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -117,6 +120,71 @@ check("今週の件数", summary["thisWeek"] == len([r for r in rows
                                             if r["ageHours"] is not None
                                             and r["ageHours"] <= 168]),
       summary["thisWeek"])
+
+print("--- 10. 伸び率が取れていない行は並び順の最後 ---")
+# build_rows は伸び率の降順で返す。取れなかった行（None）は必ず末尾に固まる。
+# ここが崩れると、既定の「伸び率順」表示の先頭に「—」の行が並ぶ。
+ratios = [r["ratio"] for r in rows]
+first_none = next((i for i, v in enumerate(ratios) if v is None), len(ratios))
+check("None より後ろに数値が現れない",
+      all(v is None for v in ratios[first_none:]), ratios[first_none:])
+check("None の行が実際に存在する（この検証が空回りしていないこと）",
+      first_none < len(ratios), first_none)
+known = [v for v in ratios if v is not None]
+check("数値どうしは降順に並ぶ",
+      all(known[i - 1] >= known[i] for i in range(1, len(known))), known[:5])
+
+# select_rows を通しても末尾のままであること
+selected_all, _, _ = select_rows(rows, 0, 0)
+sel_ratios = [r["ratio"] for r in selected_all]
+sel_first_none = next((i for i, v in enumerate(sel_ratios) if v is None), len(sel_ratios))
+check("select_rows を通しても None は末尾のまま",
+      all(v is None for v in sel_ratios[sel_first_none:]), sel_ratios[sel_first_none:])
+
+print("--- 11. コマンドとして動かす（黙って捨てないことの確認） ---")
+# main() は「何件をどの理由で載せなかったか」を人間に見せる唯一の場所。
+# 通信もブラウザも使わず、フィクスチャを一時ファイルに書いて実際に起動する。
+BUILD = Path(__file__).resolve().parent.parent / "scripts" / "build_html.py"
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    fixture = tmp / "fixture_reels.json"
+    fixture.write_text(json.dumps(store, ensure_ascii=False), encoding="utf-8")
+
+    def run_build(*args):
+        return subprocess.run(
+            [sys.executable, str(BUILD), "--input", str(fixture),
+             "--output", str(tmp / "out.html"), *args],
+            capture_output=True, text=True,
+        )
+
+    # 何も落ちないとき: 「載せなかった分」を出さない
+    r = run_build("--max-age-days", "0", "--max-reels", "0")
+    check("終了コード0", r.returncode == 0, (r.returncode, r.stderr[:200]))
+    check("生成した旨を出す", "生成しました" in r.stdout, r.stdout[:200])
+    check("何も落ちなければ内訳を出さない",
+          "載せなかった分" not in r.stdout, r.stdout[:300])
+    check("HTMLが実際に書き出される", (tmp / "out.html").exists(), None)
+
+    # 期間と件数の両方で落ちるとき: 両方の内訳を数字つきで出す
+    # フィクスチャ28件のうち1年前の1件が期間で落ち、残り27件が上限4件で23件落ちる
+    r = run_build("--max-age-days", "180", "--max-reels", "4")
+    check("終了コード0", r.returncode == 0, (r.returncode, r.stderr[:200]))
+    check("載せなかった分の見出しを出す", "載せなかった分" in r.stdout, r.stdout[:400])
+    check("期間で落ちた件数を出す", "180 日より古い: 1 件" in r.stdout, r.stdout[:400])
+    check("上限で落ちた件数を出す", "上限 4 件を超過: 23 件" in r.stdout, r.stdout[:400])
+    check("元データは残っている旨を出す",
+          "全件そのまま残っています" in r.stdout, r.stdout[:400])
+
+    # 入力が無いとき: 黙って成功しない
+    r = subprocess.run(
+        [sys.executable, str(BUILD), "--input", str(tmp / "nope.json"),
+         "--output", str(tmp / "out2.html")],
+        capture_output=True, text=True,
+    )
+    check("入力が無ければ終了コード1", r.returncode == 1, r.returncode)
+    check("入力が無ければ [NG] を出す", "[NG]" in r.stdout, r.stdout[:200])
+    check("入力が無ければHTMLを書かない", not (tmp / "out2.html").exists(), None)
 
 print(f"\n結果: {PASS} pass / {FAIL} fail")
 sys.exit(0 if FAIL == 0 else 1)
