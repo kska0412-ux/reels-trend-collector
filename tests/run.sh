@@ -52,7 +52,11 @@ echo "===== 7. 改行の作法 ====="
 SCRATCH="$WORK" node "$ROOT/tests/verify_wrapping.mjs"
 
 echo
-echo "===== 8. 公開の安全性 ====="
+echo "===== 8. 公開判定 ====="
+bash "$ROOT/tests/verify_publish.sh"
+
+echo
+echo "===== 9. 公開の安全性 ====="
 bash "$ROOT/tests/verify_safety.sh"
 
 echo
