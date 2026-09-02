@@ -41,8 +41,14 @@ const SESSION_FILE = process.env.IG_SESSION_FILE
   || path.join(ROOT, "data", "ig_session.json");
 
 // ハッシュタグページのURL。Instagram側の仕様が変わったらここを直す。
+//
+// /popular/<タグ>/ を使う理由（実データで確認済み）:
+// /explore/tags/<タグ>/ は2種類の画面を返す。リールが多いタグだけ
+// /popular/<タグ>/ へ転送され、そこには再生数がある。転送されないタグは
+// 検索結果の画面になり、再生数が null で伸び率を出せない。
+// 最初から /popular/ を開けば、転送を待たずにリール一覧を狙える。
 const TAG_URL = (tag) =>
-  `https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`;
+  `https://www.instagram.com/popular/${encodeURIComponent(tag)}/`;
 
 // プロフィールページのURL。フォロワー数を取るために開く。
 const PROFILE_URL = (username) =>
