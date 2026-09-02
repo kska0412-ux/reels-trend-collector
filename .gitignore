@@ -1,0 +1,13 @@
+# 収集データと生ログ（成果物のHTMLに埋め込まれるので追跡不要）
+data/
+logs/
+
+# ブラウザのログインセッション。絶対にコミットしない
+.browser-profile/
+
+node_modules/
+__pycache__/
+out/
+
+# 実装作業の台帳と中間成果物（SDD ワークスペース）
+.superpowers/
