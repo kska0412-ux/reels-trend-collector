@@ -2,7 +2,7 @@
 # 1ジャンルぶんの収集 → HTML生成 → GitHub Pages へ公開 まで一息で実行する。
 # launchd からジャンルごとに1日1回呼ばれる。手動で実行しても同じことが起きる。
 #
-#   bash scripts/run_collect.sh 脱毛
+#   bash scripts/run_collect.sh 育毛
 #
 # ジャンル名を省略すると全ジャンルを収集する（アクセス量が増えるので普段は使わない）。
 set -uo pipefail

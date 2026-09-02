@@ -13,20 +13,30 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from common import JST  # noqa: E402
 
-GENRES = ["フェイシャル・小顔", "薄毛", "育毛・頭皮ケア", "脱毛", "くすみ・美白",
-          "エステ・リラクゼーション", "毛穴・ニキビ", "ダイエット・痩身",
-          "むくみ・冷え", "たるみ・シワ"]
+GENRES = ["ヘッドスパ", "美容サロン経営", "アートメイク", "パーマネントジュエリー",
+          "リンパ", "セラピスト", "オンライン秘書", "更年期ケア", "ピラティス",
+          "鍼灸", "育毛", "単価UP", "経営", "手技", "エステティシャン",
+          "美容サロン", "メニュー", "高単価", "スクール"]
 TAGS = {
-    "フェイシャル・小顔": "フェイシャルエステ",
-    "薄毛": "薄毛",
-    "育毛・頭皮ケア": "育毛",
-    "脱毛": "医療脱毛",
-    "くすみ・美白": "くすみ改善",
-    "エステ・リラクゼーション": "エステサロン",
-    "毛穴・ニキビ": "毛穴ケア",
-    "ダイエット・痩身": "ダイエット方法",
-    "むくみ・冷え": "むくみ解消",
-    "たるみ・シワ": "たるみ改善",
+    "ヘッドスパ": "ヘッドスパ",
+    "美容サロン経営": "サロン経営",
+    "アートメイク": "アートメイク",
+    "パーマネントジュエリー": "パーマネントジュエリー",
+    "リンパ": "リンパマッサージ",
+    "セラピスト": "セラピスト",
+    "オンライン秘書": "オンライン秘書",
+    "更年期ケア": "更年期",
+    "ピラティス": "ピラティス",
+    "鍼灸": "鍼灸",
+    "育毛": "育毛",
+    "単価UP": "単価アップ",
+    "経営": "経営",
+    "手技": "手技",
+    "エステティシャン": "エステティシャン",
+    "美容サロン": "美容サロン",
+    "メニュー": "サロンメニュー",
+    "高単価": "高単価",
+    "スクール": "美容スクール",
 }
 
 
@@ -68,7 +78,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE025/",
         "play_count": 999_999, "like_count": 100, "comment_count": 1,
-        "genres": ["フェイシャル・小顔"], "hashtags_hit": ["フェイシャルエステ"],
+        "genres": ["ヘッドスパ"], "hashtags_hit": ["ヘッドスパ"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
 
@@ -80,7 +90,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE026/",
         "play_count": 10_000, "like_count": 500, "comment_count": 10,
-        "genres": ["薄毛"], "hashtags_hit": ["薄毛"],
+        "genres": ["育毛"], "hashtags_hit": ["育毛"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["tiny_account"] = {"follower_count": 20, "fetched_at": now.isoformat()}
@@ -107,7 +117,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE028/",
         "play_count": 800_000, "like_count": 30_000, "comment_count": 500,
-        "genres": ["たるみ・シワ"], "hashtags_hit": ["たるみ改善"],
+        "genres": ["スクール"], "hashtags_hit": ["美容スクール"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["old_reel"] = {"follower_count": 2_000, "fetched_at": now.isoformat()}
@@ -136,7 +146,7 @@ def main():
                 JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
             "permalink": 'javascript:window.__pwned=1',
             "play_count": 1000, "like_count": 10, "comment_count": 1,
-            "genres": ["フェイシャル・小顔"], "hashtags_hit": ['<script>window.__pwned=1</script>'],
+            "genres": ["エステティシャン"], "hashtags_hit": ['<script>window.__pwned=1</script>'],
             "first_seen": now.isoformat(), "last_updated": now.isoformat(),
         }
         data["accounts"]['evil"><script>window.__pwned=1</script>'] = {
@@ -151,7 +161,7 @@ def main():
             "play_count": '<img src=x onerror=window.__pwned=1>',
             "like_count": '<img src=y onerror=window.__pwned=1>',
             "comment_count": -5,
-            "genres": ["フェイシャル・小顔"], "hashtags_hit": ["フェイシャルエステ"],
+            "genres": ["エステティシャン"], "hashtags_hit": ["エステティシャン"],
             "first_seen": now.isoformat(), "last_updated": now.isoformat(),
         }
         data["accounts"]["count_injection"] = {

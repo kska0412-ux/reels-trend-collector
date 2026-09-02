@@ -52,17 +52,17 @@ console.log('--- 2. カードが描画される ---');
 console.log('--- 3. ジャンルタブ ---');
 {
   const tabs = [...doc.querySelectorAll('.tab')];
-  check('タブが11個（全部 + 10ジャンル）', tabs.length === 11, tabs.map(t => t.textContent));
+  check('タブが20個（全部 + 19ジャンル）', tabs.length === 20, tabs.map(t => t.textContent));
   check('先頭は「全部」', tabs[0].textContent.includes('全部'), tabs[0].textContent);
 
   const before = visible().length;
-  const nail = tabs.find(t => t.textContent.trim() === '脱毛');
+  const nail = tabs.find(t => t.textContent.trim() === '育毛');
   click(nail);
   const after = visible();
-  check('脱毛タブで件数が減る', after.length > 0 && after.length < before,
+  check('育毛タブで件数が減る', after.length > 0 && after.length < before,
         [before, after.length]);
-  check('表示されたカードは全部脱毛',
-        after.every(c => c.dataset.genres.split('|').includes('脱毛')),
+  check('表示されたカードは全部育毛',
+        after.every(c => c.dataset.genres.split('|').includes('育毛')),
         after.map(c => c.dataset.genres));
   check('押したタブに選択状態が付く', nail.classList.contains('on'), nail.className);
 
@@ -132,7 +132,7 @@ console.log('--- 7. 集計 ---');
   check('集計パネルがある', doc.querySelector('.summary') !== null, null);
   check('統計タイルが4枚', doc.querySelectorAll('.stat').length === 4,
         doc.querySelectorAll('.stat').length);
-  check('ジャンル別の内訳がある', doc.querySelectorAll('.bar-row').length === 10,
+  check('ジャンル別の内訳がある', doc.querySelectorAll('.bar-row').length === 19,
         doc.querySelectorAll('.bar-row').length);
   check('最終更新は収集した時刻を出す（HTMLを組んだ時刻ではない）',
         doc.querySelector('.updated .stat-value').textContent.trim()

@@ -12,12 +12,12 @@
  *   node scripts/scrape.mjs --genres config/genres.json --out data/raw_latest.json
  *
  * 主なオプション:
- *   --genre 脱毛     このジャンルのハッシュタグだけ巡回する
+ *   --genre 育毛     このジャンルのハッシュタグだけ巡回する
  *   --headful        ブラウザを表示して動きを見る
  *   --delay 10       ハッシュタグ間の待機秒数（既定10秒）
  *   --dump-dir DIR   生レスポンスを保存する（抽出が空だったときの原因調査用）
  *   --limit N        先頭N個のハッシュタグだけ処理する（試運転用）
- *   --max-profiles N フォロワー数を取りに行くアカウント数の上限（既定15）
+ *   --max-profiles N フォロワー数を取りに行くアカウント数の上限（既定10）
  *   --skip-accounts F 既にフォロワー数が新しいアカウントの一覧（collect.py が渡す）
  */
 
