@@ -178,6 +178,16 @@ console.log('--- 9. 他人由来の値が HTML として解釈されないこと
   check('キャプションも文字として表示される',
         card.querySelector('.caption').children.length === 0,
         card.querySelector('.caption').innerHTML);
+
+  check('数値フィールドに文字列が入っても要素が作られない',
+        d3.window.document.querySelectorAll('img').length === 0,
+        [...d3.window.document.querySelectorAll('img')].map(e => e.outerHTML));
+  const inj = [...d3.window.document.querySelectorAll('.card')]
+    .find(c => /count_injection/.test(c.textContent));
+  check('数値注入のカードが存在する（この検証が空回りしていないこと）',
+        inj !== undefined, null);
+  check('数値でない再生数は — と出る', /再生 —/.test(inj.textContent), inj.textContent);
+  check('負のコメント数も — と出る', /コメント —/.test(inj.textContent), inj.textContent);
 }
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);

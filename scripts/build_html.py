@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import (  # noqa: E402
     BASE_DIR, DATA_FILE, JST, now_jst_iso, parse_timestamp, reach_ratio,
+    _as_count as _count_or_none,
 )
 
 # GitHub Pages は main ブランチの /docs をそのまま配信できるので、ここに出す
@@ -50,13 +51,8 @@ def build_rows(store, now=None):
     for reel_id, r in (store.get("reels") or {}).items():
         username = r.get("username") or "unknown"
         account = accounts.get(username) or {}
-        followers = account.get("follower_count")
-        if not isinstance(followers, int) or isinstance(followers, bool):
-            followers = None
-
-        plays = r.get("play_count")
-        if not isinstance(plays, int) or isinstance(plays, bool):
-            plays = None
+        followers = _count_or_none(account.get("follower_count"))
+        plays = _count_or_none(r.get("play_count"))
 
         ratio = reach_ratio(plays, followers)
 
@@ -74,8 +70,8 @@ def build_rows(store, now=None):
             "caption": r.get("caption") or "",
             "permalink": r.get("permalink") or "",
             "plays": plays,
-            "likes": r.get("like_count"),
-            "comments": r.get("comment_count"),
+            "likes": _count_or_none(r.get("like_count")),
+            "comments": _count_or_none(r.get("comment_count")),
             "followers": followers,
             "ratio": round(ratio, 1) if ratio is not None else None,
             "ageHours": round(age_hours, 1) if age_hours is not None else None,
@@ -378,7 +374,11 @@ TEMPLATE_SCRIPT = r"""
 
   var state = { genre: null, sort: 'ratio', q: '' };
 
-  function num(v) { return v === null || v === undefined ? '—' : v.toLocaleString(); }
+  /* 数値以外は「取れなかった」として扱う。文字列をそのまま流すと
+     innerHTML に HTML が入り込む。 */
+  function num(v) {
+    return typeof v === 'number' && isFinite(v) ? v.toLocaleString() : '—';
+  }
 
   /* 他人由来の値を innerHTML に入れる前に無害化する。
      キャプションは textContent で守っているが、ユーザー名とリンクも同じく他人由来。
@@ -416,7 +416,7 @@ TEMPLATE_SCRIPT = r"""
   var maxGenre = SUMMARY.genres.length ? SUMMARY.genres[0][1] : 1;
   document.getElementById('breakdown').innerHTML = SUMMARY.genres.map(function (g) {
     var pct = Math.round(g[1] / maxGenre * 100);
-    return '<div class="bar-row"><span class="bar-name">' + g[0] +
+    return '<div class="bar-row"><span class="bar-name">' + esc(g[0]) +
            '</span><span class="bar-track"><span class="bar-fill" style="width:' + pct +
            '%"></span></span><span class="bar-count">' + g[1] + '</span></div>';
   }).join('');
@@ -425,7 +425,7 @@ TEMPLATE_SCRIPT = r"""
   var tabs = document.getElementById('tabs');
   tabs.innerHTML = ['全部'].concat(GENRES).map(function (g, i) {
     return '<button type="button" class="tab' + (i === 0 ? ' on' : '') +
-           '" data-genre="' + (i === 0 ? '' : g) + '">' + g + '</button>';
+           '" data-genre="' + (i === 0 ? '' : esc(g)) + '">' + esc(g) + '</button>';
   }).join('');
   tabs.addEventListener('click', function (e) {
     var b = e.target.closest('.tab');

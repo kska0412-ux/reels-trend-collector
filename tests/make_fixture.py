@@ -132,6 +132,22 @@ def main():
         data["accounts"]['evil"><script>window.__pwned=1</script>'] = {
             "follower_count": 100, "fetched_at": now.isoformat()}
 
+        data["reels"]["hostile2"] = {
+            "id": "hostile2", "code": "HOSTILE2", "username": "count_injection",
+            "caption": "数値のはずの場所に文字列が入っている",
+            "timestamp": (now - timedelta(days=1)).astimezone(
+                JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "permalink": "https://www.instagram.com/reel/HOSTILE2/",
+            "play_count": '<img src=x onerror=window.__pwned=1>',
+            "like_count": '<img src=y onerror=window.__pwned=1>',
+            "comment_count": -5,
+            "genres": ["ネイル"], "hashtags_hit": ["ネイルデザイン"],
+            "first_seen": now.isoformat(), "last_updated": now.isoformat(),
+        }
+        data["accounts"]["count_injection"] = {
+            "follower_count": '<img src=z onerror=window.__pwned=1>',
+            "fetched_at": now.isoformat()}
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
