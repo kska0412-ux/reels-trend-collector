@@ -61,11 +61,16 @@ function getCaption(o) {
 }
 
 function getTimestamp(o) {
-  // taken_at は UNIX 秒。ミリ秒で来る実装もあるので桁で判別する。
+  // taken_at は UNIX 秒。ミリ秒やマイクロ秒で来る実装もあるので桁で判別する。
   for (const k of ["taken_at", "taken_at_timestamp", "device_timestamp", "publish_date"]) {
     const v = o[k];
     if (typeof v === "number" && v > 0) {
-      const seconds = v > 1e12 ? Math.floor(v / 1000) : v;
+      let seconds = v;
+      if (v > 1e14) seconds = Math.floor(v / 1e6);        // マイクロ秒
+      else if (v > 1e11) seconds = Math.floor(v / 1e3);   // ミリ秒
+      // 未来の日付は取り違えの証拠。取れなかったことにする。
+      // 混ぜると新着順の先頭に居座り、期間フィルタでも落ちなくなる。
+      if (seconds > Date.now() / 1000 + 86400) continue;
       return new Date(seconds * 1000).toISOString().replace(".000Z", "+0000");
     }
   }

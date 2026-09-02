@@ -118,6 +118,13 @@ console.log("--- 7. 時刻のゆれに対応 ---");
         [ms.timestamp, sec.timestamp]);
   const none = findReels({ x: reel({ pk: "m3", taken_at: undefined }) })[0];
   check("時刻が無くても落ちない（nullになる）", none.timestamp === null, none.timestamp);
+
+  const us = findReels({ x: reel({ pk: "u1", taken_at: undefined,
+                                   device_timestamp: 1756500000000000 }) })[0];
+  check("マイクロ秒も秒に直る", us.timestamp === sec.timestamp,
+        [us.timestamp, sec.timestamp]);
+  const future = findReels({ x: reel({ pk: "f1", taken_at: 99999999999 }) })[0];
+  check("遠い未来の時刻は取れなかった扱い", future.timestamp === null, future.timestamp);
 }
 
 console.log("--- 8. 欠けている数値はnullのまま持つ ---");
