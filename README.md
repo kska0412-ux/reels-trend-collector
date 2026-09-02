@@ -76,16 +76,57 @@ Playwright をインストールします。
 npm install --prefix . playwright
 ```
 
-ブラウザを開いて Instagram にログインします。
+次に Instagram のログインを用意します。方法は
+2つあります。**方法Aを先に試してください。**
+
+### 方法A: 普段のブラウザからセッションを渡す（推奨）
+
+ログイン画面を一度も通らないので、reCAPTCHA に
+引っかかりません。
+
+1. 普段使いの Chrome で instagram.com を開く
+   （収集用のサブアカウントでログイン済みの状態）
+2. `Option + Command + I` で開発者ツールを開く
+3. 上部タブ **Application** → 左の **Cookies** の
+   「▶」を開く → `https://www.instagram.com`
+4. **Name 列**から `sessionid` を探し、
+   **Value 列**をダブルクリックしてコピー
+5. 次の3行をまとめて貼り付け、`ここに貼る` を
+   コピーした値に置き換える
+
+```
+cat > data/ig_session.json <<'EOF'
+{"sessionid":"ここに貼る"}
+EOF
+```
+
+`printf` は使わないでください。`sessionid` には
+`%3A` が含まれ、書式指定と解釈されて壊れます。
+
+書けたか確認します。
+
+```
+python3 -c "import json;d=json.load(open('data/ig_session.json'));print('OK sessionid', len(d['sessionid']), '文字')"
+```
+
+**`sessionid` はパスワードと同じ重みの情報です。**
+`data/` は公開対象から除外されているので置いても
+安全ですが、他人には見せないでください。
+セッションは定期的に切れます。切れたら
+`セッションが切れています` と出るので、
+同じ手順で入れ直してください。
+
+### 方法B: ブラウザからログインする
 
 ```
 python3 scripts/collect.py --login
 ```
 
-**収集専用のサブアカウントでログインしてください。
-本家アカウントは使わないでください。** ログイン
-セッションは `.browser-profile/` に保存され、
-Instagram には触れません
+**reCAPTCHA が回り続けて通過できないことが
+あります。** その場合は方法Aを使ってください。
+
+**どちらの方法でも、収集専用のサブアカウントを
+使ってください。本家アカウントは使わないでください**
 （後述「アカウントリスク」を参照）。
 
 ## 使い方
