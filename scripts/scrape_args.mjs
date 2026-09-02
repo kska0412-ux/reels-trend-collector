@@ -31,7 +31,11 @@ export function parseArgs(argv) {
 export function loadTagPairs(file, onlyGenre) {
   const config = JSON.parse(fs.readFileSync(file, "utf8"));
   const pairs = [];
-  for (const [genre, entry] of Object.entries(config.genres || {})) {
+  // 主ジャンルと掛け合わせ語のどちらも巡回する。Instagram のハッシュタグページは
+  // 1タグ単位で、Threads のような「オンライン秘書 経営」という掛け合わせ検索が
+  // できないため、それぞれのタグを個別に見に行く。
+  const groups = { ...(config.genres || {}), ...(config.modifiers || {}) };
+  for (const [genre, entry] of Object.entries(groups)) {
     if (onlyGenre && genre !== onlyGenre) continue;
     for (const tag of entry.hashtags || []) pairs.push({ genre, hashtag: tag });
   }

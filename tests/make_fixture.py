@@ -13,13 +13,13 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from common import JST  # noqa: E402
 
-GENRES = ["ヘッドスパ", "美容サロン経営", "アートメイク", "パーマネントジュエリー",
-          "リンパ", "セラピスト", "オンライン秘書", "更年期ケア", "ピラティス",
-          "鍼灸", "育毛", "単価UP", "経営", "手技", "エステティシャン",
-          "美容サロン", "メニュー", "高単価", "スクール"]
+# 主ジャンル。掛け合わせ語（経営・メニューなど）はジャンルではないのでここに入れない。
+# 掛け合わせのハッシュタグから拾ったリールを模した1件は下で別に足す。
+GENRES = ["ヘッドスパ", "アートメイク", "パーマネントジュエリー", "リンパ",
+          "セラピスト", "エステティシャン", "美容サロン", "オンライン秘書",
+          "更年期ケア", "ピラティス", "鍼灸", "育毛"]
 TAGS = {
     "ヘッドスパ": "ヘッドスパ",
-    "美容サロン経営": "サロン経営",
     "アートメイク": "アートメイク",
     "パーマネントジュエリー": "パーマネントジュエリー",
     "リンパ": "リンパマッサージ",
@@ -121,6 +121,21 @@ def build(now):
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["old_reel"] = {"follower_count": 2_000, "fetched_at": now.isoformat()}
+
+    # 29: 掛け合わせのハッシュタグ（#サロン経営）から拾ったリール。
+    # ジャンル欄に「経営」が入るが、画面では上段のジャンルではなく
+    # 下段の掛け合わせとして扱われること。
+    reels["r29"] = {
+        "id": "r29", "code": "CODE029", "username": "salon_owner",
+        "caption": "サロンの売上が伸びない時、まず見るのは集客じゃなくてリピートです。",
+        "timestamp": (now - timedelta(hours=20)).astimezone(
+            JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "permalink": "https://www.instagram.com/reel/CODE029/",
+        "play_count": 120_000, "like_count": 4_000, "comment_count": 90,
+        "genres": ["経営"], "hashtags_hit": ["サロン経営"],
+        "first_seen": now.isoformat(), "last_updated": now.isoformat(),
+    }
+    accounts["salon_owner"] = {"follower_count": 3_000, "fetched_at": now.isoformat()}
 
     return {"updated_at": now.isoformat(), "reels": reels, "accounts": accounts}
 

@@ -1,365 +1,4 @@
-#!/usr/bin/env python3
-"""
-data/reels.json を読んで、単一ファイル完結の HTML 一覧を docs/index.html に書き出す。
 
-外部リソースを一切参照しないので、ブラウザで開くだけで動く（サーバー不要）。
-画面の作りは Threads Research Tool と揃えてある。
-
-並び替えは3種類:
-  - 伸び率   : 再生数 ÷ フォロワー数。小さいアカウントの当たりを拾う
-  - 再生数   : 絶対値。多くの人に届いたリールが上位に来る
-  - 新着     : 投稿の新しい順
-
-使い方:
-  python3 scripts/build_html.py
-  python3 scripts/build_html.py --output /path/to/out.html
-"""
-
-import argparse
-import json
-import sys
-from pathlib import Path
-from datetime import datetime
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from common import (  # noqa: E402
-    BASE_DIR, CONFIG_FILE, DATA_FILE, JST, now_jst_iso, parse_timestamp,
-    reach_ratio, _as_count,
-)
-
-# GitHub Pages は main ブランチの /docs をそのまま配信できるので、ここに出す
-OUTPUT_FILE = BASE_DIR / "docs" / "index.html"
-
-# ページに載せる範囲。data/reels.json には全履歴が残り、ここで絞るのは表示分だけ。
-# 無制限にするとHTMLが際限なく太り、GitHubの1ファイル上限に当たって更新が止まる。
-DEFAULT_MAX_AGE_DAYS = 180
-DEFAULT_MAX_POSTS = 1500
-
-# 「よく伸びた」と数える基準（伸び率）。集計パネルに出す。
-OVER_RATIO = 100
-
-# 各ジャンルに必ず確保する枠。
-# 上限を全体の順位だけで切ると、いいね数の絶対値が大きいジャンル（ダイエットなど）が
-# 枠を食い切り、ニッチなジャンル（パーマネントジュエリーなど）がページから消える。
-DEFAULT_PER_GENRE = 80
-
-
-def build_rows(store, now=None):
-    """蓄積データを、HTML に埋め込む行のリストに変換する。"""
-    now = now or datetime.now(JST)
-    accounts = store.get("accounts") or {}
-    rows = []
-
-    for reel_id, r in (store.get("reels") or {}).items():
-        username = r.get("username") or "unknown"
-        account = accounts.get(username) or {}
-        followers = _as_count(account.get("follower_count"))
-        plays = _as_count(r.get("play_count"))
-        ratio = reach_ratio(plays, followers)
-
-        posted = parse_timestamp(r.get("timestamp"))
-        if posted is None:
-            age_hours = None
-            posted_iso = ""
-        else:
-            age_hours = (now - posted).total_seconds() / 3600.0
-            posted_iso = posted.astimezone(JST).isoformat()
-
-        rows.append({
-            "id": reel_id,
-            "username": username,
-            "text": r.get("caption") or "",
-            "permalink": r.get("permalink") or "",
-            "plays": plays,
-            "likes": _as_count(r.get("like_count")),
-            "comments": _as_count(r.get("comment_count")),
-            "followers": followers,
-            "ratio": round(ratio, 1) if ratio is not None else None,
-            "ageHours": round(age_hours, 1) if age_hours is not None else None,
-            "postedAt": posted_iso,
-            # 投稿番号から復元した時刻かどうか。画面で「およそ」を添えるのに使う
-            "timestampEstimated": bool(r.get("timestamp_estimated")),
-            "genres": r.get("genres") or [],
-            "hashtags": r.get("hashtags_hit") or [],
-        })
-
-    rows.sort(key=ratio_key)
-    return rows
-
-
-def ratio_key(r):
-    """伸び率の降順。取れていない（None）ものは最後に回す。"""
-    return (r["ratio"] is None, -(r["ratio"] or 0))
-
-
-def recency_key(r):
-    """新しい順。投稿日時が取れていないものは最後に回す。"""
-    return (r["ageHours"] is None, r["ageHours"] if r["ageHours"] is not None else 0)
-
-
-def embed_json(data):
-    """<script> の中に安全に置ける JSON 文字列にする。"""
-    return (
-        json.dumps(data, ensure_ascii=False)
-        .replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-        .replace("&", "\\u0026")
-    )
-
-
-def take_top(rows, quota, chosen):
-    """
-    rows の上位 quota 件を chosen（id → 行）に足す。すでに入っている分も枠に数える。
-
-    伸び率順だけで切ると「まだ再生が回りきっていない新しいリール」が落ちる。
-    新着順だけで切ると当たった企画が落ちる。そこで両方の上位を
-    半分ずつ確保してから、残りを伸び率順で埋める。
-    """
-    if quota <= 0:
-        return
-    already = sum(1 for r in rows if r["id"] in chosen)
-    room = quota - already
-    if room <= 0:
-        return
-
-    half = room // 2
-    by_ratio = sorted(rows, key=ratio_key)
-    by_recency = sorted(rows, key=recency_key)
-
-    added = 0
-    for pool, limit in ((by_recency, half), (by_ratio, room)):
-        for r in pool:
-            if added >= limit:
-                break
-            if r["id"] in chosen:
-                continue
-            chosen[r["id"]] = r
-            added += 1
-
-
-def select_rows(rows, max_age_days, max_posts, per_genre=DEFAULT_PER_GENRE):
-    """
-    ページに載せる投稿を選ぶ。返り値は (選んだ行, 期間外で外した数, 上限で外した数)。
-
-    全体の順位だけで上限まで切ると、いいね数の絶対値が大きいジャンルが枠を
-    食い切り、ニッチなジャンルがページから丸ごと消える。そこで先に
-    ジャンルごとの枠を確保し、残りを全体の上位で埋める。
-    """
-    if max_age_days > 0:
-        limit_hours = max_age_days * 24
-        # 投稿日時が取れなかったものは判断できないので残す
-        in_window = [r for r in rows if r["ageHours"] is None or r["ageHours"] <= limit_hours]
-    else:
-        in_window = list(rows)
-    aged_out = len(rows) - len(in_window)
-
-    if max_posts <= 0 or len(in_window) <= max_posts:
-        return in_window, aged_out, 0
-
-    # --- 1. ジャンルごとの枠 ---
-    by_genre = {}
-    for r in in_window:
-        for g in r.get("genres") or []:
-            by_genre.setdefault(g, []).append(r)
-
-    chosen = {}
-    if per_genre > 0 and by_genre:
-        # 枠の合計が上限を超えるとジャンルの並び順で後ろが切り捨てられる。
-        # そうならないよう、超えるときは全ジャンルを均等に縮める。
-        quota = min(per_genre, max(1, max_posts // len(by_genre)))
-        # 件数の少ないジャンルから埋める。多いジャンルが先に枠を取ると、
-        # 掛け持ち投稿で少ないジャンルの枠が食われて0件になりうる。
-        for _, genre_rows in sorted(by_genre.items(), key=lambda kv: len(kv[1])):
-            if len(chosen) >= max_posts:
-                break
-            take_top(genre_rows, quota, chosen)
-
-    # --- 2. 残りを全体の上位で埋める ---
-    take_top(in_window, max_posts, chosen)
-
-    selected = list(chosen.values())[:max_posts]
-    return selected, aged_out, len(in_window) - len(selected)
-
-
-def load_config_genres(path):
-    """
-    設定にあるジャンル名を、書かれた順に返す。
-
-    ページには「まだ集まっていないジャンル」も出す。データにあるものだけを
-    並べると、ローテーションで今日まだ回っていないジャンルが消えてしまい、
-    対象が狭まったように見えるため。読めなければ空を返し、データ側だけで組む。
-    """
-    try:
-        config = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    return list(config.get("genres", {}))
-
-
-def split_genre_name(name):
-    """
-    ジャンル名を、折り返してよい単位に切る。JS 側の nameParts と同じ規則。
-    「・」は前の語に付ける。行頭に「・」が落ちるのを防ぐため。
-    """
-    parts = name.split("・")
-    return [p + "・" if i < len(parts) - 1 else p for i, p in enumerate(parts)]
-
-
-def pack_lines(parts, width):
-    """区切りを幅 width（文字数）の行に詰めたとき、何行になるか。"""
-    lines = 1
-    used = 0
-    for part in parts:
-        if used and used + len(part) > width:
-            lines += 1
-            used = len(part)
-        else:
-            used += len(part)
-    return lines
-
-
-def bar_name_layout(genres):
-    """
-    ジャンル別の棒グラフで、名前の列幅（em）と高さ（em）を決める。
-
-    列幅を名前に合わせて伸ばすと、行ごとに棒の開始位置がずれて長さを比べられない。
-    かといって短く固定すると、長い名前が棒に重なる。そこで「一番長い区切り」が
-    1行に収まる幅を、実際のジャンル名から計算して全行に効かせる。
-
-    区切りは「・」の位置だけ。カタカナ語の途中では割らないので、「・」を含まない
-    長い名前（パーマネントジュエリーなど）は、その長さぶんの幅がそのまま要る。
-    高さは、一番多く折り返す名前の行数に揃える。1行と2行が混ざると
-    行の間隔がばらついて読みにくくなるため。
-    """
-    names = [g for g in genres if g]
-    if not names:
-        return 6.5, 1.4
-    widest = max(len(part) for name in names for part in split_genre_name(name))
-    lines = max(pack_lines(split_genre_name(name), widest) for name in names)
-    return max(6.5, widest + 0.5), round(lines * 1.4, 2)
-
-
-def load_config_modifiers(path):
-    """
-    掛け合わせ語と、その判定語を設定から読む。{語: [判定語, ...]} を返す。
-    読めなければ空を返し、2段目のチップは出さない。
-    """
-    try:
-        config = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    table = {}
-    for modifier, entry in (config.get("modifiers") or {}).items():
-        words = list(entry.get("match_any") or [])
-        if words:
-            table[modifier] = words
-    return table
-
-
-def tag_modifiers(rows, modifiers):
-    """
-    各リールに掛け合わせ語を付け、ジャンル欄からは外す。副作用は rows への書き込み。
-
-    判定はキャプションを見る。掛け合わせのハッシュタグから拾ったリールだけに
-    付けると、主ジャンルから拾った同じ話題のリールが絞り込みから漏れるため。
-
-    あわせて、掛け合わせのハッシュタグ（#サロン経営 など）から拾ったリールは
-    ジャンル欄にその語が入っている。そのままだと上段のチップに「経営」が
-    並んでしまい、2段に分けた意味が無くなるので下段へ移す。
-    """
-    for row in rows:
-        text = row.get("text") or ""
-        mods = {m for m, words in modifiers.items() if any(w in text for w in words)}
-        genres = row.get("genres") or []
-        mods.update(g for g in genres if g in modifiers)
-        row["genres"] = [g for g in genres if g not in modifiers]
-        row["mods"] = sorted(mods)
-
-
-def rising_js(rows):
-    """
-    「伸び中」の基準を JavaScript の値として書き出す。
-
-    リールが0件のとき Python の float("inf") をそのまま str() すると "inf" になり、
-    JS では未定義の識別子になってページのスクリプトが丸ごと止まる。
-    収集を始める前や、期間で全部落ちたときに必ず通る道なので、ここで潰す。
-    """
-    value = rising_threshold(rows)
-    if value == float("inf"):
-        return "Infinity"
-    return str(round(value, 4))
-
-
-def rising_threshold(rows):
-    """
-    「伸び中」と表示する基準。全リールの伸び率の上位10%にあたる値を使う。
-    固定値だとジャンルや時期で意味が変わってしまうため、母集団から決める。
-    """
-    values = sorted((r["ratio"] for r in rows if r["ratio"]), reverse=True)
-    if not values:
-        return float("inf")
-    index = max(0, int(len(values) * 0.10) - 1)
-    return values[index]
-
-
-def build_summary(rows, store, archived, config_genres=()):
-    """一覧の上に出す集計。詳細より先に全体像が分かるようにする。"""
-    counts = {}
-    for r in rows:
-        for g in r["genres"]:
-            counts[g] = counts.get(g, 0) + 1
-
-    # 集まっているものを件数の多い順に、まだ0件のものを設定に書いた順で後ろに置く。
-    # 「今どのジャンルが強いか」が先に見え、未収集は下にまとまって読みやすい。
-    collected = sorted(
-        ((g, n) for g, n in counts.items() if n > 0), key=lambda kv: (-kv[1], kv[0])
-    )
-    pending = [(g, 0) for g in config_genres if counts.get(g, 0) == 0]
-
-    week = [r for r in rows if r["ageHours"] is not None and r["ageHours"] <= 168]
-    return {
-        "total": len(rows),
-        "archived": archived,
-        "genres": collected + pending,
-        "overRatio": len([r for r in rows
-                          if r["ratio"] is not None and r["ratio"] >= OVER_RATIO]),
-        "thisWeek": len(week),
-        "authors": len({r["username"] for r in rows}),
-        "updatedAt": (store.get("updated_at") or "")[:16].replace("T", " "),
-    }
-
-
-def render_html(rows, generated_at, store, archived, config_genres=(),
-                config_modifiers=None):
-    summary = build_summary(rows, store, archived, config_genres)
-    # チップの並びは下の「ジャンル別」の棒グラフと揃える
-    genres = [[name, count] for name, count in summary["genres"]]
-    bar_col, bar_minh = bar_name_layout([g for g, _ in genres])
-
-    # 掛け合わせ語は設定に書いた順で出す。件数順にすると日ごとに並びが動き、
-    # 「いつもの位置」で押せなくなる（ジャンルより数が少なく、覚えて使うため）
-    mod_counts = {}
-    for row in rows:
-        for m in row.get("mods") or []:
-            mod_counts[m] = mod_counts.get(m, 0) + 1
-    modifiers = [[m, mod_counts.get(m, 0)] for m in (config_modifiers or {})]
-
-    return (
-        TEMPLATE.replace("__DATA__", embed_json(rows))
-        .replace("__GENRES__", embed_json(genres))
-        .replace("__MODIFIERS__", embed_json(modifiers))
-        .replace("__SUMMARY__", embed_json(summary))
-        .replace("__RISING__", rising_js(rows))
-        .replace("__GENERATED__", generated_at)
-        .replace("__GENRE_COUNT__", str(len(genres)))
-        .replace("__BAR_COL__", str(bar_col))
-        .replace("__BAR_MINH__", str(bar_minh))
-        .replace("__COUNT__", str(len(rows)))
-    )
-
-
-TEMPLATE = r"""
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- 公開リポジトリで配信するため、検索結果には出さない -->
@@ -498,7 +137,7 @@ TEMPLATE = r"""
      幅と高さは実際のジャンル名から build_html.py が計算して埋める。 */
   .bar-row {
     display: grid;
-    grid-template-columns: __BAR_COL__em 1fr auto;
+    grid-template-columns: 11.5em 1fr auto;
     gap: 12px; align-items: center;
   }
   .bar-row + .bar-row { margin-top: 8px; }
@@ -507,7 +146,7 @@ TEMPLATE = r"""
      flex にしているのは、折り返した2行をまとめて上下中央に置くため。 */
   .bar-name {
     font-size: .76rem; line-height: 1.4;
-    min-height: __BAR_MINH__em;
+    min-height: 1.4em;
     display: flex; flex-wrap: wrap; align-content: center;
   }
   .bar-track {
@@ -676,7 +315,7 @@ TEMPLATE = r"""
 
 <div class="wrap">
   <header>
-    <h1>Instagram Reel Research Tool<span class="ver"><span class="nb">美容ビジネス</span><span class="nb">（__GENRE_COUNT__ジャンル）</span></span></h1>
+    <h1>Instagram Reel Research Tool<span class="ver"><span class="nb">美容ビジネス</span><span class="nb">（12ジャンル）</span></span></h1>
   </header>
 
   <div class="panel">
@@ -711,10 +350,10 @@ TEMPLATE = r"""
   <div id="list"></div>
 </div>
 
-<script id="data" type="application/json">__DATA__</script>
-<script id="genre-list" type="application/json">__GENRES__</script>
-<script id="modifier-list" type="application/json">__MODIFIERS__</script>
-<script id="summary-data" type="application/json">__SUMMARY__</script>
+<script id="data" type="application/json">[{"id": "3912758648140295367", "username": "unknown._____official", "text": "…\n「まつパ中って、目閉じてるから何されてるか分からない…👀💡」\n\nそんな疑問にお答えして、実際の施術工程を30秒にギュッとまとめてみました！\n\n実は、綺麗にまつげを上げるために\nこんなに丁寧なステップを踏んでいるんです✨\n\n動画のテンポが良すぎて、クセになっちゃうかも…？🤭\n\nプロの技、ぜひ最後までチェックしてみてください👇\n\n💬 みなさんは、動画のどの部分が一番気になりましたか？\n「ここが好き！」「見てて気持ちいい！」というポイントがあれば、ぜひコメントで教えてくださいね💕\n\n#まつげパーマ #まつパ #まつ毛パーマ #まつパ動画 #アイラッシュ", "permalink": "https://www.instagram.com/reel/DZM6UKCPWzH/", "plays": 2356099, "likes": null, "comments": null, "followers": 4612, "ratio": 510.9, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": []}, {"id": "3951151112749182281", "username": "nailist_pika", "text": "これガチで困りますよね💦？　#ギャル #ネイリスト #ネイル #ネイルデザイン #あるある", "permalink": "https://www.instagram.com/reel/DbVTwDBTe1J/", "plays": 681686, "likes": null, "comments": null, "followers": 2442, "ratio": 279.2, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3972153498389120446", "username": "usaginoo_omotesando", "text": "@usaginoo_omotesando ←まつげのお悩みをアイリストが解決🔍\n\nまつげパーマをすると\n「毛先がまぶたに当たって気になる…😭」\n\nそんなお悩みをスレッズで見つけたので\nアイリスト目線で解決方法をご紹介します👀✨\n\n次のまつげパーマでそのまま伝えられるように\n保存しておいてね📌\n#まつげパーマ", "permalink": "https://www.instagram.com/reel/Dcf7I-4zwW-/", "plays": 483598, "likes": null, "comments": null, "followers": 1889, "ratio": 256.0, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": []}, {"id": "3954890601437144651", "username": "lapis_aoi", "text": "別バージョンも♥✨✨✨\n何度見ても可愛い₍ᐢ •̀ᴗ•́ᐢ₎b♥\n\n#ネイルデザイン#ドットネイル#マグネットネイル#ロングネイル#ワンホンネイル", "permalink": "https://www.instagram.com/reel/DbimAxQMSZL/", "plays": 349206, "likes": null, "comments": null, "followers": 1976, "ratio": 176.7, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3948272729396224514", "username": "misaki_dapiw", "text": "@aiba_rinon 様ご来店🐈‍⬛🩷可愛すぎてニヤニヤしちゃいました＞＜\n\n《おそろいメニュー》\n眉毛スタイリング＋眉カラー＋ラッシュリフト\n\n《お揃いデザイン》\n平行眉/butte rodでぱっちりストレート‼︎\n\n《担当》@misaki_dapiw\n他投稿もこちらからCheck📢✨\n\n《salon》Dapiw表参道\n 📍東京都渋谷区神宮前3-3-11  ルフィチュール田端ビル2F-B\n🦋表参道駅A2出口より徒歩5分🪽\n\nホットペッパーアプリ・公式LINE（ハイライトご覧ください！）で可能です♪\nお待ちしております🫧\n\n#まつげパーマ #今日好き #韓国まつげ #ラッシュリフト #表参道", "permalink": "https://www.instagram.com/reel/DbLFSDoBiIC/", "plays": 244461, "likes": null, "comments": null, "followers": 1413, "ratio": 173.0, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": ["メニュー"]}, {"id": "3912673394666866140", "username": "ryvella_china", "text": "SNSでチョー話題韓国まつ毛パーマ^֊ ֊ ⸝⸝⸝ ^🇰🇷💭\n\n🇰🇷まつパの推しPOINT𛰙᭜𖫴𖫰𖫱𖫳𖫲𖫲𖫳𖫴𖫰𖫱꛰ ᭜𖫴𖫰𖫱𖫳𖫲𖫲𖫳𖫴𖫰𖫱꛰ಣ⇩♡\n☀︎NOエタノールで乾燥知らず\n☀︎デザイン自由自在で1番盛れるデザインに出会える\n☀︎高濃度トリートメント使用\n☀︎束感まつ毛がつくりやすい\n☀︎うる艶な仕上がりに\n\nご新規様🆕🌟￥2000オフ！\nご予約はプロフィールリンクから☝︎☝︎\nお待ちしております૮꒰ྀི⁔.⸝⸝⸝⸝.⁔꒱ྀིა💕\n\n#まつ毛パーマ #まつげパーマ #まつげカール #韓国まつ毛パーマ #新宿まつ毛パーマ", "permalink": "https://www.instagram.com/reel/DZMm7jjPYXc/", "plays": 865348, "likes": null, "comments": null, "followers": 5533, "ratio": 156.4, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": ["メニュー"]}, {"id": "3963459108327531739", "username": "lily_eye", "text": "一重コンプレックスさんに届けー(՞•̥ ̫•՞)\n⁡\n＼ふんわりナチュラルに仕上げる✨️／\n\n当店こんな方がおすすめ👇🏻♥️\n\n◾︎初めてのまつ毛と眉毛の施術はお任せください\n◾︎眉毛はふんわり柔らかく仕上げたい\n◾︎まつげはぱっちりだけどナチュラルに可愛く\n◾︎目元周りを早く簡単に垢抜けたい方\n\n当店のおすすめポイント👇🏻♥️\n\n◾︎1:1のプライベートサロン\n◾︎お客様への似合わせが得意\n◾︎しっかりカウンセリング\n◾︎緊張しなくていい！\nたくさんお客様が施術しながらお喋り\n※静かに寝られてるお客様もいます😊\nどっちもok!\n\n1度きたら通いたくなるそんなサロン🐰ྀི\n皆様のご来店もお待ちしております🫶🥹\n\n┈┈┈┈┈┈┈┈┈┈┈┈\nLily eyelash ／ wakana.\n\n福山市神辺新湯野 𝘱𝘳𝘪𝘷𝘢𝘵𝘦 𝘴𝘢𝘭𝘰𝘯 \nマクドナルド神辺店近く🍔🍟🍦\n\nシャビーシックな店内の\n𝘱𝘳𝘪𝘷𝘢𝘵𝘦 𝘴𝘢𝘭𝘰𝘯 でおひとり様づつ\nゆっくりお過ごしください\nまずはハイライトを確認してね♡\n\nhttps://beauty.hotpepper.jp/kr/slnH000657865/\n\nPあり\n⁡⁡9:30〜17:00最終受付16:00\n不定休\n\nお支払い:現金、paypay、カード【※】\n※クレカ支払い制限あり。￥10000以上の支払いから\n\n┈┈┈┈┈┈┈┈┈┈┈┈\n #まつげパーマ  #アイリスト#福山まつげパーマ \n #自宅サロン#一重メイク", "permalink": "https://www.instagram.com/reel/DcBCQ9JpiTb/", "plays": 103175, "likes": null, "comments": null, "followers": 698, "ratio": 147.8, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": []}, {"id": "3973525602756000196", "username": "yayoi.kel_y", "text": "***\n.\n\n何になるかは、最後までのお楽しみ。\n一癖あるニュアンスが好きです🫧\n\n#ニュアンスネイル \n#個性派ネイル \n#ネイルデザイン \n#ネイルチップ \n#奥行きネイル", "permalink": "https://www.instagram.com/reel/DckzHuqMPnE/", "plays": 51231, "likes": null, "comments": null, "followers": 325, "ratio": 102.5, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3942509538766139729", "username": "china_eyeeye", "text": "マツパしてまだ2週間なのにバラつく…それ、\nパーマの寿命じゃなくて【 自分のケア 】が\n間違っているかも！😭\n\nやってたら今すぐやめてほしいNG行動3選👇🏻\n\n1️⃣ シャワーを直接顔に当てる\n👉🏻強い水圧はカールの天敵！\nお湯は手ですくって優しく流して🚿\n\n2️⃣ まつ毛を乾燥したままにする\n👉🏻お肌と同じで乾燥するとチリチリに🥵\n朝晩の美容液で必ず保湿😌⭐️\n\n3️⃣ 洗顔後にタオルでゴシゴシ拭く\n👉🏻濡れた毛への強い摩擦はバラつきの最大の原因😱\nティッシュやペーパーで優しくポンポンと水分を吸い取るのが正解🙆🏼‍♀️\n\n＿＿＿＿＿＿＿＿＿＿\n\n［ ご予約 ］\nプロフィールTOPのURLからご予約ください⋆˙⟡ 🧘🏼‍♀️🪷\n\n・ハイライトの\"about reserve\"をご覧ください🤍\n・よくある質問などもピン留めの投稿にまとめております📌💕\n\n［ Access ］\n〒150-0002\n東京都渋谷区渋谷2-6-1 ウィンド渋谷2階\n最寄り駅/表参道・渋谷\n\n※Google mapの道順は、歩きづらいので\nハイライトの\"Access“をご覧ください✧\n\n𓂃 𓈒 𓂃 𓈒 𓂃 𓈒 𓂃 𓈒 𓂃 𓈒 𓂃 𓈒 𓂃 𓈒 𓂃\n\n今日のメニュー\n└✧ 𝘮𝘦𝘯𝘶 \n眉毛Wax+まつ毛パーマ(ᴗ͈ˬᴗ͈)♡\n通常価格¥13,000(ご新規様+550)\n\n└✧ option\n眉カラー+￥2,200\nブラックティント+¥1,100\n\n💞: 新しく仕入れてきたケア剤を使ってマツパをしているので、よりダメージレスでできます◎✊🏻\n\n└✧ オススメ𝘮𝘦𝘯𝘶\n似合わせまつ毛パーマ(ᴗ͈ˬᴗ͈)♡\n通常価格¥6,980(ご新規様+550)\n\n꒰ა 指名料+550円 ໒꒱\n\nꜰᴏʟʟᴏᴡ ᴍᴇ 💌 ˎˊ˗ \n他にも『アイサロンをもっと活用するコツ』や 『ホームケア方法』を載せて行くのでフォローしてお待ちくださいᰔᰔᰔ\n\n#まつげパーマ表参道 #まつげパーマ渋谷 #眉毛ワックス表参道 #眉毛ワックス", "permalink": "https://www.instagram.com/reel/Da2m4mFvrFR/", "plays": 117510, "likes": null, "comments": null, "followers": 1371, "ratio": 85.7, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": ["メニュー", "手技"]}, {"id": "3959160097448311580", "username": "runa___.nail", "text": "ワンホンはいつやっても可愛い‎( \u003e ·̫ \u003c)👍🏻🌟\n#大阪ネイル #ちゅるんネイル #ワンホンネイル #ネイルデザイン #ネイル", "permalink": "https://www.instagram.com/reel/DbxwyHRTrsc/", "plays": 263227, "likes": null, "comments": null, "followers": 3429, "ratio": 76.8, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3919286495769099772", "username": "im_miku_eye", "text": "🫧ラッシュリフト上🫧\n\nマツパで失敗されちゃったことある？？\n体験談教えてください🙇‍♀️\n\nダメージにもよりますが、最大限修正してみせます🔥\n一度ご相談ください🫶🏻\n\n#マツパ #ラッシュリフト #まつげパーマ #まつぱ #マツエク", "permalink": "https://www.instagram.com/reel/DZkGk15TX38/", "plays": 92743, "likes": null, "comments": null, "followers": 1414, "ratio": 65.6, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": []}, {"id": "3928618220627828869", "username": "kotori_eyebrow", "text": "パーマ毛に対してビューラー（ホットビューラー）は傷んじゃうので気をつけてね（ ; ; ）\n\n私は1秒マツエクのブラウン×クラウンの10mmがお気に入り👑\n\n@misseyedor \n\n#1秒マツエク #まつげパーマ #マスカラパーマ #部分用つけまつげ", "permalink": "https://www.instagram.com/reel/DaFQXT6piCF/", "plays": 176109, "likes": null, "comments": null, "followers": 2778, "ratio": 63.4, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": []}, {"id": "3923613499460495557", "username": "thila.noo", "text": "white｜silver 🤍🪩\nキラうるを組み合わせたデザインです.🪄\nwhite pearl🐚laceとlamé mix 全て鬼可愛い！\n\n#広島市ネイルサロン #ネイルデザイン #nails #nailart", "permalink": "https://www.instagram.com/reel/DZzebCHRSjF/", "plays": 43721, "likes": null, "comments": null, "followers": 771, "ratio": 56.7, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3910595382517329063", "username": "nailsalon_dreams__", "text": "1日Vlog〜💞💞\n#大阪ネイルサロン  #ギャルネイル  #ネイル  #ネイルデザイン #堺ネイルサロン", "permalink": "https://www.instagram.com/reel/DZFOcf7Omyn/", "plays": 108846, "likes": null, "comments": null, "followers": 3995, "ratio": 27.2, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3973657885703682594", "username": "emi_noranail", "text": "スタッフのネイル替えたよん😘👍🏻🎀\n10本アートは120分コースです🎶\nこんな感じで一緒にデザイン考えたい方も120分コースでご予約ください🫶🏻", "permalink": "https://www.instagram.com/reel/DclRMswTDoi/", "plays": 47979, "likes": null, "comments": null, "followers": 2785, "ratio": 17.2, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": ["メニュー", "経営"]}, {"id": "3933061531280815968", "username": "c.byum", "text": ".\nNail Edit！\n\n人気のあるデザイン集めました💅\n保存して参考にしてみてね🫧\n\n#ネイルデザイン #人気ネイルデザイン #個性派ネイルデザイン", "permalink": "https://www.instagram.com/reel/DaVCp_bvzdg/", "plays": 118891, "likes": null, "comments": null, "followers": 9344, "ratio": 12.7, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3919224404558100517", "username": "nailmind_tokyo", "text": "ふんわり揺れるドレスのような立体感🤍\n上品なピンクのきらめきネイル✨\n\n定額デザイン🤍\n\nご予約はプロフィールのリンクから👇\n\n#ネイル\n#マグネットネイル\n#キラキラネイル\n#ネイルデザイン \n#池袋ネイルサロン", "permalink": "https://www.instagram.com/reel/DZj4dS8ujgl/", "plays": 264076, "likes": null, "comments": null, "followers": 61033, "ratio": 4.3, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3023349857910947208", "username": "moriharuna71", "text": "久しぶりにまつげパーマ行けて嬉しい😍\n\"根本からあげすぎず自然なカールで、目尻はナチュラルに流れるように\"ってお願いしてます♡\n\n@ila_ayaka ありがとうございます✨\n\n#まつげパーマ#まつぱ#マツパ#パリジェンヌラッシュリフト#パリジェンヌ#メイク動画#アイメイク", "permalink": "https://www.instagram.com/reel/Cn1GK1ogn2I/", "plays": 141542, "likes": null, "comments": null, "followers": 135932, "ratio": 1.0, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": []}, {"id": "3943954332047081157", "username": "nailiejp", "text": "保存してあとで見返してね💞\n他のデザインは @nailiejp をチェック👀\n\n【🚨見逃し厳禁💥】¥10,000分クーポンプレゼント💝🎟️\n\n素敵なネイルデザインを Repostでご紹介させて頂いてます🏹🩰\n写真はご本人様に【掲載許諾】をとっております🪽\n\n@nailiejp\n\nthank you🩵\n@ynnnnail \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n#ヌーディーカラー #ヌーディーカラーネイル #韓国ネイル #ワンホンネイル #夏ネイル", "permalink": "https://www.instagram.com/reel/Da7vZGsB37F/", "plays": 229614, "likes": null, "comments": null, "followers": 322048, "ratio": 0.7, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["ネイルデザイン"], "mods": []}, {"id": "3974745324304207819", "username": "nicottlash_kobe", "text": "————————————————\nnicott lashグループはしっかりとカウンセリングさせていただき\nお客様の骨格や雰囲気に合わせてデザインをご提案させていただきます。\n\n▼サービス一覧\nまつげパーマ/まつ毛パーマ/マツパ/まつげカール/下まつげパーマ/パリジェンヌラッシュリフト/眉毛/アイブロウ/マツエク上下/カラーマツエク/フラットラッシュ/束感/韓国風\n\n————————————————\n\n【神戸三宮エリア口コミ1位獲得のまつげ眉毛サロン】\n\nニコットグループ 10個の強み\n①累計10万人・口コミ1位獲得のアイサロンブランド\n②JR三ノ宮駅徒歩1分◆JR・阪急・阪神の全沿線から徒歩2分\n③全スタッフ資格保有!!経験豊富なアイリストのみが在籍\n④個室空間◆ふかふかのリクライニングチェア完備\n⑤カウンセリング＆目元診断◆1人1人にのマンツーマン接客\n⑥スピーディな施術‼短時間でハイクオリティなサービス\n⑦人気の【フラットラッシュ】長さ・太さ・カールも多数\n⑧話題の「パリジェンヌラッシュリフト」や束感パーマも\n⑨パウダーブースありなので、大事な予定前にもピッタリ\n⑩リピーター特典や優先次回予約システムなど通いやすい\n\n▼サロン一覧\nnicott lash 神戸三宮店【ニコットラッシュ】\nDaisy Lash 神戸三宮店【デイジーラッシュ】\nSakura-blow 神戸三宮店【サクラブロウ】\nnicott lash 神戸マルイ店【ニコットラッシュ】\n\nご予約はプロフィールのURLから！\n\n————————————————\n\n@nicottlash_kobe\n\n他にも施術実績の情報がたくさん！\nあなたの理想のスタイルを見つけてみてください\n\n————————————————\n\n#まつげパーマ #眉毛 #フラットラッシュ #神戸まつげ #三宮まつげ", "permalink": "https://www.instagram.com/reel/DcpIdA3zA_L/", "plays": 268, "likes": null, "comments": null, "followers": 5764, "ratio": 0.0, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": ["スクール", "経営"]}, {"id": "3768624348749065507", "username": "mimuraharuka_1027", "text": "今日は ArisLy 錦糸町南口店 さんで\nまつげパーマをしていただきました👀✨\n\n根元からしっかり上がって、ビューラーいらずでぱっちり感が続くのが嬉しい…💗\n仕上がりがとっても綺麗で、横から見ても上品なカールでした☺️🌸\n\n錦糸町駅からすぐなのでアクセスも◎！\n気になる方はぜひチェックしてみてね✨\n\n📍住所：東京都墨田区江東橋4丁目13-8 下村ビル201（ArisLy 錦糸町南口店）\n\nPR @aris.kinshichominamiguchi\n#まつげパーマ #まつ毛パーマ #パリジェンヌ #クレア\n#可愛い #東京 #錦糸町 #錦糸町南口", "permalink": "https://www.instagram.com/reel/DRM1-DPE20j/", "plays": 2182, "likes": null, "comments": null, "followers": 101415, "ratio": 0.0, "ageHours": null, "postedAt": "", "timestampEstimated": false, "genres": [], "hashtags": ["まつげパーマ"], "mods": []}]</script>
+<script id="genre-list" type="application/json">[["ヘッドスパ", 0], ["アートメイク", 0], ["パーマネントジュエリー", 0], ["リンパ", 0], ["セラピスト", 0], ["エステティシャン", 0], ["美容サロン", 0], ["オンライン秘書", 0], ["更年期ケア", 0], ["ピラティス", 0], ["鍼灸", 0], ["育毛", 0]]</script>
+<script id="modifier-list" type="application/json">[["経営", 2], ["メニュー", 4], ["高単価", 0], ["単価UP", 0], ["スクール", 1], ["手技", 1]]</script>
+<script id="summary-data" type="application/json">{"total": 21, "archived": 21, "genres": [["ヘッドスパ", 0], ["アートメイク", 0], ["パーマネントジュエリー", 0], ["リンパ", 0], ["セラピスト", 0], ["エステティシャン", 0], ["美容サロン", 0], ["オンライン秘書", 0], ["更年期ケア", 0], ["ピラティス", 0], ["鍼灸", 0], ["育毛", 0]], "overRatio": 8, "thisWeek": 0, "authors": 21, "updatedAt": "2026-09-02 21:33"}</script>
 <script>
 (function () {
   var readJSON = function (id) { return JSON.parse(document.getElementById(id).textContent); };
@@ -722,7 +361,7 @@ TEMPLATE = r"""
   var GENRES = readJSON('genre-list');
   var MODIFIERS = readJSON('modifier-list');
   var SUMMARY = readJSON('summary-data');
-  var RISING = __RISING__;   // 伸び率の上位10%にあたる値
+  var RISING = 510.9;   // 伸び率の上位10%にあたる値
 
   var activeGenres = new Set();
   var activeMods = new Set();   // 掛け合わせ語。ジャンルとはANDで効かせる
@@ -812,7 +451,7 @@ TEMPLATE = r"""
   // 「最終収集」は実際に収集した時刻。HTMLを作り直しただけでは進まない。
   (function renderStamp() {
     var stamp = document.getElementById('stamp');
-    var collectedAt = SUMMARY.updatedAt || '__GENERATED__';
+    var collectedAt = SUMMARY.updatedAt || '2026-09-03 01:25';
     var units = ['最終収集 ' + collectedAt];
     if (SUMMARY.archived > SUMMARY.total) {
       units.push('　/　蓄積 ' + SUMMARY.archived.toLocaleString() + ' 件のうち ');
@@ -1029,81 +668,3 @@ TEMPLATE = r"""
   render();
 })();
 </script>
-"""
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=OUTPUT_FILE)
-    parser.add_argument("--input", type=Path, default=DATA_FILE,
-                        help="読み込む蓄積データ（検証用に差し替えられる）")
-    parser.add_argument("--max-age-days", type=int, default=DEFAULT_MAX_AGE_DAYS,
-                        help="この日数より古いリールはページに載せない（0で無制限）")
-    parser.add_argument("--max-reels", type=int, default=DEFAULT_MAX_POSTS,
-                        help="ページに載せる最大件数（0で無制限）")
-    parser.add_argument("--allow-empty", action="store_true",
-                        help="0件でも既存のページを上書きする")
-    parser.add_argument("--per-genre", type=int, default=DEFAULT_PER_GENRE,
-                        help="各ジャンルに必ず確保する件数（0で枠取りなし）")
-    parser.add_argument("--config", type=Path, default=CONFIG_FILE,
-                        help="ジャンル一覧を読む設定ファイル")
-    args = parser.parse_args()
-
-    if not args.input.exists():
-        print(f"[NG] データがありません: {args.input}")
-        print("     先に python3 scripts/collect.py を実行してください。")
-        return 1
-
-    store = json.loads(args.input.read_text(encoding="utf-8"))
-    config_genres = load_config_genres(args.config)
-    config_modifiers = load_config_modifiers(args.config)
-
-    all_rows = build_rows(store)
-    # ジャンルの枠取りより前に分ける。分けないと掛け合わせ語がジャンルの枠を食う
-    tag_modifiers(all_rows, config_modifiers)
-
-    rows, aged_out, over_cap = select_rows(
-        all_rows, args.max_age_days, args.max_reels, args.per_genre
-    )
-    rows.sort(key=ratio_key)
-
-    # 0件のページで、今ある正しいページを上書きしない。
-    # 蓄積データは .gitignore なのでバックアップが無く、消えたら戻せない。
-    if (not rows and not args.allow_empty
-            and args.output.exists() and args.output.stat().st_size > 1024):
-        print(f"[NG] 0 件になりました。既存のページを上書きしません: {args.output}")
-        print(f"     蓄積データを確認してください: {args.input}")
-        print("     意図的に空のページを出すなら --allow-empty を付けてください。")
-        return 1
-
-    html = render_html(
-        rows, now_jst_iso()[:16].replace("T", " "), store, len(all_rows),
-        config_genres, config_modifiers,
-    )
-
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(html, encoding="utf-8")
-
-    # 設定に無いジャンルが混ざっていたら、生成した時点で気づけるようにする
-    if config_genres:
-        stale = sorted({g for r in rows for g in r["genres"]} - set(config_genres))
-        if stale:
-            print("[注意] 設定に無いジャンル名がページに載っています: " + " / ".join(stale))
-            print("       python3 scripts/rename_genre.py '<古い名前>' '<新しい名前>'")
-
-    size_kb = args.output.stat().st_size / 1024
-    print(f"生成しました: {args.output}  （{len(rows)} 件 / {size_kb:.0f} KB）")
-    # 黙って捨てない。何をどれだけ載せなかったかを必ず出す。
-    if aged_out or over_cap:
-        print(f"蓄積 {len(all_rows)} 件のうち、ページに載せなかった分:")
-        if aged_out:
-            print(f"  {args.max_age_days} 日より古い: {aged_out} 件")
-        if over_cap:
-            print(f"  上限 {args.max_reels} 件を超過: {over_cap} 件")
-        print("  （data/reels.json には全件そのまま残っています）")
-    print(f"開く: open {args.output}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -52,13 +52,22 @@ console.log("--- 2. 引数の読み取り ---");
 console.log("--- 3. 実際の設定ファイルを読む ---");
 {
   const pairs = loadTagPairs(CONFIG);
-  check("57組を作る", pairs.length === 57, pairs.length);
+  const config = JSON.parse(fs.readFileSync(CONFIG, "utf8"));
+  // 主ジャンルと掛け合わせ語のどちらも巡回する。数は設定で変わりうるので
+  // 直書きせず、設定から数える
+  const expected = { ...config.genres, ...(config.modifiers || {}) };
+  const tagCount = Object.values(expected)
+    .reduce((n, e) => n + (e.hashtags || []).length, 0);
+  check(`設定どおり${tagCount}組を作る`, pairs.length === tagCount, pairs.length);
   const genres = [...new Set(pairs.map((p) => p.genre))];
-  check("19ジャンル", genres.length === 19, genres);
+  check("主ジャンルと掛け合わせ語を両方まわる",
+        genres.length === Object.keys(expected).length, genres);
+  // 掛け合わせ語のハッシュタグを取りこぼすと、下段のチップが埋まらない
+  check("掛け合わせ語も巡回する",
+        Object.keys(config.modifiers || {}).every((m) => genres.includes(m)),
+        Object.keys(config.modifiers || {}).filter((m) => !genres.includes(m)));
   check("設定ファイルの順序を保つ",
-        JSON.stringify(genres) ===
-          JSON.stringify(Object.keys(JSON.parse(fs.readFileSync(CONFIG, "utf8")).genres)),
-        genres);
+        JSON.stringify(genres) === JSON.stringify(Object.keys(expected)), genres);
   check("組はジャンルとハッシュタグを持つ",
         pairs.every((p) => typeof p.genre === "string" && typeof p.hashtag === "string"
                            && p.genre && p.hashtag), pairs[0]);

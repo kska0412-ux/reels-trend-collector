@@ -38,15 +38,15 @@ check('あふれる時だけ折る overflow-wrap を使っている',
 check('日本語の禁則を強める line-break: strict がある',
       /line-break:\s*strict/.test(css), null);
 check('キャプションにも適用されている',
-      /\.caption\s*\{[^}]*word-break:\s*normal/s.test(css), null);
+      /\.text\s*\{[^}]*word-break:\s*normal/s.test(css), null);
 
 console.log('--- 2. 文節をまとめる仕組み ---');
 check('.nb が nowrap で定義されている', /\.nb\s*\{\s*white-space:\s*nowrap/.test(css), null);
 
 console.log('--- 3. 短いラベルが途中で割れない ---');
 for (const cls of ['stat-value', 'stat-label', 'count', 'tag', 'link',
-                   'ratio', 'metric', 'bar-name', 'bar-count',
-                   'breakdown-title', 'sort-btn', 'tab', 'followers']) {
+                   'likes', 'vel', 'age', 'metric', 'bar-count',
+                   'breakdown-title', 'chip-name', 'badge', 'filter-label']) {
   check(`.${cls} が nowrap`,
         new RegExp(`\\.${cls}\\s*\\{[^}]*white-space:\\s*nowrap`, 's').test(css), null);
 }
@@ -59,7 +59,7 @@ q.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
 const empty = doc.querySelector('.empty');
 check('該当なしのメッセージが出る', empty !== null, null);
 const emptyUnits = [...empty.querySelectorAll('.nb')].map(e => e.textContent);
-check('文節ごとに分かれている', emptyUnits.length >= 5, emptyUnits);
+check('文節ごとに分かれている', emptyUnits.length >= 4, emptyUnits);
 check('「絞り込みを」が1かたまりになっている', emptyUnits.includes('絞り込みを'), emptyUnits);
 check('全文が .nb の中に収まっている',
       emptyUnits.join('') === empty.textContent,
@@ -72,12 +72,20 @@ const startsWithParticle = allUnits.filter(t => PARTICLES.some(p => t.startsWith
 check('助詞で始まるかたまりが無い', startsWithParticle.length === 0, startsWithParticle);
 
 console.log('--- 5. 注記も文節で括られている ---');
-const ratioUnits = [...doc.querySelectorAll('.note-ratio .nb')].map(e => e.textContent);
+const note = doc.querySelector('.note');
+const ratioUnits = [...note.querySelectorAll('.nb')].map(e => e.textContent);
 check('伸び率の注記が文節ごとに分かれている', ratioUnits.length >= 8, ratioUnits);
 check('「フォロワー数で」が1かたまり', ratioUnits.includes('フォロワー数で'), ratioUnits);
 check('注記の全文が .nb に収まっている',
-      ratioUnits.join('') === doc.querySelector('.note-ratio').textContent,
-      ratioUnits.join(''));
+      ratioUnits.join('') === note.textContent, ratioUnits.join(''));
+
+console.log('--- 5b. ジャンル別の横棒 ---');
+// 名前の長さで列幅が動くと、棒の開始位置が行ごとにずれて長さを比べられない
+check('名前の列が固定幅',
+      /\.bar-row\s*\{[^}]*grid-template-columns:\s*[\d.]+em 1fr auto/s.test(css), null);
+const barUnits = [...doc.querySelectorAll('.bar-name .nb')].map(e => e.textContent);
+check('ジャンル名が文節ごとに分かれている', barUnits.length > 0, barUnits);
+check('「・」が行頭に来ない', barUnits.every(u => !u.startsWith('・')), barUnits);
 
 console.log('--- 6. ライトとダークで同じトークンが定義されている ---');
 // jsdom は CSS を評価しないので、テキストとして3ブロックを抜き出して比べる。

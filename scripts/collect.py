@@ -152,8 +152,10 @@ def fresh_accounts(store, now=None):
 def load_required_any():
     """ジャンルごとの必須語を読む。{ジャンル名: [語, ...]} を返す。"""
     config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    # 主ジャンルと掛け合わせ語のどちらも巡回するので、両方の必須語を読む
+    groups = {**config.get("genres", {}), **(config.get("modifiers") or {})}
     return {genre: entry.get("required_any", [])
-            for genre, entry in config.get("genres", {}).items()}
+            for genre, entry in groups.items()}
 
 
 def is_relevant(caption, required_any):

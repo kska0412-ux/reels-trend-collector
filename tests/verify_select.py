@@ -40,7 +40,9 @@ rows = build_rows(store, now=NOW)
 by_id = {r["id"]: r for r in rows}
 
 print("--- 1. 行の組み立て ---")
-check("28件すべて行になる", len(rows) == 28, len(rows))
+# 件数はフィクスチャから数える。直書きすると1件足すたびに落ちる
+TOTAL = len(store["reels"])
+check(f"{TOTAL}件すべて行になる", len(rows) == TOTAL, len(rows))
 r1 = by_id["r1"]
 check("再生数が入る", r1["plays"] == 485_000, r1["plays"])
 check("フォロワー数が入る", r1["followers"] == 1_900, r1["followers"])
@@ -79,13 +81,17 @@ nt_ids = {r["id"] for r in nt_selected}
 check("投稿時刻が無いリールは残る", "r27" in nt_ids, sorted(nt_ids))
 check("上限で落ちたのは0件", over_cap == 0, over_cap)
 selected_all, aged_all, _ = select_rows(rows, 0, 0)
-check("max_age_days=0 なら期間で落とさない", aged_all == 0 and len(selected_all) == 28,
+check("max_age_days=0 なら期間で落とさない", aged_all == 0 and len(selected_all) == TOTAL,
       (aged_all, len(selected_all)))
 
 print("--- 6. 件数の上限と、伸び率上位・新着上位の半々確保 ---")
 selected, aged_out, over_cap = select_rows(rows, 0, 6)
 check("6件に絞られる", len(selected) == 6, len(selected))
-check("落とした件数を返す", over_cap == 28 - 6, over_cap)
+check("落とした件数を返す", over_cap == TOTAL - 6, over_cap)
+
+# ジャンルの枠取りを外すと、伸び率上位と新着上位を半分ずつ確保する。
+# 伸び率だけで切ると新しいリールが落ち、新着だけで切ると当たった企画が落ちる
+selected, _, _ = select_rows(rows, 0, 6, per_genre=0)
 ids = {r["id"] for r in selected}
 
 ranked = [r for r in rows if r["ratio"] is not None]
@@ -98,9 +104,16 @@ newest = sorted(dated, key=lambda r: r["ageHours"])[:3]
 check("新着上位3件が全部入っている",
       all(r["id"] in ids for r in newest), [r["id"] for r in newest])
 
+# 枠取りを効かせると、件数の少ないジャンルがページから丸ごと消えない
+print("--- 6b. ジャンルごとの枠取り ---")
+genres_all = {g for r in rows for g in r["genres"]}
+selected, _, _ = select_rows(rows, 0, len(genres_all), per_genre=1)
+kept = {g for r in selected for g in r["genres"]}
+check("どのジャンルも1件は残る", genres_all <= kept, sorted(genres_all - kept))
+
 print("--- 7. 上限に届かないときは絞らない ---")
 selected, _, over_cap = select_rows(rows, 0, 1000)
-check("全件そのまま", len(selected) == 28, len(selected))
+check("全件そのまま", len(selected) == TOTAL, len(selected))
 check("落とした件数は0", over_cap == 0, over_cap)
 
 print("--- 8. 重複を二重に数えない ---")
@@ -111,17 +124,20 @@ check("id が重複しない", len({r["id"] for r in selected}) == 4,
       [r["id"] for r in selected])
 
 print("--- 9. 集計 ---")
-summary = build_summary(rows, store, archived=28)
-check("総数", summary["total"] == 28, summary["total"])
-check("ジャンルが19種", len(summary["genres"]) == 19, summary["genres"])
+summary = build_summary(rows, store, archived=TOTAL)
+check("総数", summary["total"] == TOTAL, summary["total"])
+# ジャンル構成は設定で変わりうるので、数ではなくデータと突き合わせる
+check("データにあるジャンルを全部数える",
+      {g for g, _ in summary["genres"]} == {g for r in rows for g in r["genres"]},
+      summary["genres"])
 check("ジャンルは件数の多い順", 
       all(summary["genres"][i][1] >= summary["genres"][i + 1][1]
           for i in range(len(summary["genres"]) - 1)), summary["genres"])
 check("アカウント数", summary["authors"] == len({r["username"] for r in rows}),
       summary["authors"])
 check("伸び率100倍超の件数が数えられている",
-      summary["over100"] == len([r for r in rows if r["ratio"] is not None
-                                 and r["ratio"] >= 100]), summary["over100"])
+      summary["overRatio"] == len([r for r in rows if r["ratio"] is not None
+                                   and r["ratio"] >= 100]), summary["overRatio"])
 check("今週の件数", summary["thisWeek"] == len([r for r in rows
                                             if r["ageHours"] is not None
                                             and r["ageHours"] <= 168]),
@@ -173,12 +189,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check("HTMLが実際に書き出される", (tmp / "out.html").exists(), None)
 
     # 期間と件数の両方で落ちるとき: 両方の内訳を数字つきで出す
-    # フィクスチャ28件のうち1年前の1件が期間で落ち、残り27件が上限4件で23件落ちる
+    # 1年前の1件が期間で落ち、残りが上限4件で溢れる
     r = run_build("--max-age-days", "180", "--max-reels", "4")
     check("終了コード0", r.returncode == 0, (r.returncode, r.stderr[:200]))
     check("載せなかった分の見出しを出す", "載せなかった分" in r.stdout, r.stdout[:400])
     check("期間で落ちた件数を出す", "180 日より古い: 1 件" in r.stdout, r.stdout[:400])
-    check("上限で落ちた件数を出す", "上限 4 件を超過: 23 件" in r.stdout, r.stdout[:400])
+    check("上限で落ちた件数を出す",
+          f"上限 4 件を超過: {TOTAL - 1 - 4} 件" in r.stdout, r.stdout[:400])
     check("元データは残っている旨を出す",
           "全件そのまま残っています" in r.stdout, r.stdout[:400])
 
