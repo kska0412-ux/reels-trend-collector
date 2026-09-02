@@ -151,9 +151,17 @@ console.log('--- 9. 他人由来の値が HTML として解釈されないこと
   const d3 = new JSDOM(hostile, { runScripts: 'dangerously' });
   const w3 = d3.window;
   check('埋め込まれたスクリプトが実行されていない', w3.__pwned === undefined, w3.__pwned);
-  check('script タグが増えていない（データ由来のものが無い）',
-        [...d3.window.document.querySelectorAll('script')]
-          .every(s => !/__pwned/.test(s.textContent)), null);
+  // データ埋め込み（type="application/json"）に文字列が入るのは正しい動作。
+  // 見るべきは「実行されるスクリプトに紛れ込んでいないか」と
+  // 「生のHTMLにエスケープされていない <script> が残っていないか」の2つ。
+  const runnable = [...d3.window.document.querySelectorAll('script')]
+    .filter((s) => !s.type || s.type === 'text/javascript');
+  check('実行されるスクリプトが1つある（この検証が空回りしていないこと）',
+        runnable.length >= 1, runnable.length);
+  check('実行されるスクリプトに注入文字列が現れない',
+        runnable.every((s) => !/__pwned/.test(s.textContent)), null);
+  check('生のHTMLにエスケープされていない script タグが残っていない',
+        !/<script>window\.__pwned/.test(hostile), null);
   const card = [...d3.window.document.querySelectorAll('.card')]
     .find(c => /evil/.test(c.textContent));
   check('意地悪なリールのカードが存在する（この検証が空回りしていないこと）',
