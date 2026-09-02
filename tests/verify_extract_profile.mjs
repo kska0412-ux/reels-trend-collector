@@ -61,6 +61,12 @@ console.log("--- 5. 取れないときは null（0で埋めない） ---");
   check("nullを渡しても落ちない", findFollowerCount(null, "u") === null, null);
   check("usernameが空なら常にnull",
         findFollowerCount({ user: { username: "u", follower_count: 5 } }, "") === null, null);
+  check("edge_followed_by.count が文字列なら null",
+        findFollowerCount({ user: { username: "u", edge_followed_by: { count: "100" } } }, "u") === null,
+        findFollowerCount({ user: { username: "u", edge_followed_by: { count: "100" } } }, "u"));
+  check("edge_followed_by.count が負なら null",
+        findFollowerCount({ user: { username: "u", edge_followed_by: { count: -5 } } }, "u") === null,
+        findFollowerCount({ user: { username: "u", edge_followed_by: { count: -5 } } }, "u"));
 }
 
 console.log("--- 6. 深いネストでも見つかる ---");
@@ -101,6 +107,24 @@ console.log("--- 9. 複数見つかったら最大値を採る ---");
   const json = { a: { username: "u", follower_count: 1200 },
                  b: { username: "u", follower_count: 1234 } };
   check("大きい方を返す", findFollowerCount(json, "u") === 1234, findFollowerCount(json, "u"));
+  // ペイロード跨ぎ。extractFollowerCount 側の比較が実際に走ることを押さえる。
+  // 1本目に小さい値・2本目に大きい値を置き、「最初に見つかった方」ではなく
+  // 「大きい方」が返ることを確かめる。
+  const twoPayloads = [
+    JSON.stringify({ user: { username: "u", follower_count: 1200 } }),
+    JSON.stringify({ user: { username: "u", follower_count: 1234 } }),
+  ].join("\n");
+  check("ペイロード跨ぎでも大きい方を返す",
+        extractFollowerCount(twoPayloads, "u") === 1234,
+        extractFollowerCount(twoPayloads, "u"));
+  // 順序を入れ替えても結果が変わらないこと（「最後の値」を返しているのではない）
+  const reversed = [
+    JSON.stringify({ user: { username: "u", follower_count: 1234 } }),
+    JSON.stringify({ user: { username: "u", follower_count: 1200 } }),
+  ].join("\n");
+  check("順序を入れ替えても大きい方を返す",
+        extractFollowerCount(reversed, "u") === 1234,
+        extractFollowerCount(reversed, "u"));
 }
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
