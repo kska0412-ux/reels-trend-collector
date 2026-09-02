@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import JST  # noqa: E402
 from build_html import build_rows, select_rows, build_summary  # noqa: E402
-from make_fixture import build as build_fixture  # noqa: E402
+from make_fixture import build as build_fixture, GENRES  # noqa: E402
 
 PASS = FAIL = 0
 
@@ -46,7 +46,7 @@ check("再生数が入る", r1["plays"] == 485_000, r1["plays"])
 check("フォロワー数が入る", r1["followers"] == 1_900, r1["followers"])
 check("伸び率が計算される", r1["ratio"] is not None and abs(r1["ratio"] - 485_000 / 1_900) < 0.1,
       r1["ratio"])
-check("ジャンルが入る", r1["genres"] == ["アイラッシュ"], r1["genres"])
+check("ジャンルが入る", r1["genres"] == [GENRES[1 % len(GENRES)]], r1["genres"])
 check("permalink が入る", r1["permalink"].startswith("https://www.instagram.com/reel/"),
       r1["permalink"])
 
@@ -107,7 +107,7 @@ check("id が重複しない", len({r["id"] for r in selected}) == 4,
 print("--- 9. 集計 ---")
 summary = build_summary(rows, store, archived=28)
 check("総数", summary["total"] == 28, summary["total"])
-check("ジャンルが6種", len(summary["genres"]) == 6, summary["genres"])
+check("ジャンルが10種", len(summary["genres"]) == 10, summary["genres"])
 check("ジャンルは件数の多い順", 
       all(summary["genres"][i][1] >= summary["genres"][i + 1][1]
           for i in range(len(summary["genres"]) - 1)), summary["genres"])

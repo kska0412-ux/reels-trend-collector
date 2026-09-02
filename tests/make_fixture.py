@@ -13,14 +13,20 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from common import JST  # noqa: E402
 
-GENRES = ["ネイル", "アイラッシュ", "眉毛", "脱毛", "痩身", "髪"]
+GENRES = ["フェイシャル・小顔", "薄毛", "育毛・頭皮ケア", "脱毛", "くすみ・美白",
+          "エステ・リラクゼーション", "毛穴・ニキビ", "ダイエット・痩身",
+          "むくみ・冷え", "たるみ・シワ"]
 TAGS = {
-    "ネイル": "ネイルデザイン",
-    "アイラッシュ": "まつげパーマ",
-    "眉毛": "眉毛サロン",
+    "フェイシャル・小顔": "フェイシャルエステ",
+    "薄毛": "薄毛",
+    "育毛・頭皮ケア": "育毛",
     "脱毛": "医療脱毛",
-    "痩身": "痩身エステ",
-    "髪": "育毛",
+    "くすみ・美白": "くすみ改善",
+    "エステ・リラクゼーション": "エステサロン",
+    "毛穴・ニキビ": "毛穴ケア",
+    "ダイエット・痩身": "ダイエット方法",
+    "むくみ・冷え": "むくみ解消",
+    "たるみ・シワ": "たるみ改善",
 }
 
 
@@ -62,7 +68,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE025/",
         "play_count": 999_999, "like_count": 100, "comment_count": 1,
-        "genres": ["ネイル"], "hashtags_hit": ["セルフネイル"],
+        "genres": ["フェイシャル・小顔"], "hashtags_hit": ["フェイシャルエステ"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
 
@@ -74,7 +80,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE026/",
         "play_count": 10_000, "like_count": 500, "comment_count": 10,
-        "genres": ["アイラッシュ"], "hashtags_hit": ["まつげパーマ"],
+        "genres": ["薄毛"], "hashtags_hit": ["薄毛"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["tiny_account"] = {"follower_count": 20, "fetched_at": now.isoformat()}
@@ -86,7 +92,7 @@ def build(now):
         "timestamp": None,
         "permalink": "https://www.instagram.com/reel/CODE027/",
         "play_count": 5_000, "like_count": 50, "comment_count": 2,
-        "genres": ["ネイル"], "hashtags_hit": ["ネイルサロン"],
+        "genres": ["育毛・頭皮ケア"], "hashtags_hit": ["育毛"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["no_timestamp"] = {"follower_count": 3_000, "fetched_at": now.isoformat()}
@@ -99,7 +105,7 @@ def build(now):
             JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
         "permalink": "https://www.instagram.com/reel/CODE028/",
         "play_count": 800_000, "like_count": 30_000, "comment_count": 500,
-        "genres": ["髪"], "hashtags_hit": ["育毛"],
+        "genres": ["たるみ・シワ"], "hashtags_hit": ["たるみ改善"],
         "first_seen": now.isoformat(), "last_updated": now.isoformat(),
     }
     accounts["old_reel"] = {"follower_count": 2_000, "fetched_at": now.isoformat()}
@@ -128,7 +134,7 @@ def main():
                 JST).strftime("%Y-%m-%dT%H:%M:%S%z"),
             "permalink": 'javascript:window.__pwned=1',
             "play_count": 1000, "like_count": 10, "comment_count": 1,
-            "genres": ["ネイル"], "hashtags_hit": ['<script>window.__pwned=1</script>'],
+            "genres": ["フェイシャル・小顔"], "hashtags_hit": ['<script>window.__pwned=1</script>'],
             "first_seen": now.isoformat(), "last_updated": now.isoformat(),
         }
         data["accounts"]['evil"><script>window.__pwned=1</script>'] = {
@@ -143,7 +149,7 @@ def main():
             "play_count": '<img src=x onerror=window.__pwned=1>',
             "like_count": '<img src=y onerror=window.__pwned=1>',
             "comment_count": -5,
-            "genres": ["ネイル"], "hashtags_hit": ["ネイルデザイン"],
+            "genres": ["フェイシャル・小顔"], "hashtags_hit": ["フェイシャルエステ"],
             "first_seen": now.isoformat(), "last_updated": now.isoformat(),
         }
         data["accounts"]["count_injection"] = {

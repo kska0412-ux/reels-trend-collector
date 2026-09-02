@@ -9,7 +9,7 @@ import fs from "fs";
 
 export function parseArgs(argv) {
   const args = { delay: 10, limit: 0, headful: false, login: false, minReels: 5,
-                 maxProfiles: 20 };
+                 maxProfiles: 15 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--login") args.login = true;

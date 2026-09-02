@@ -16,7 +16,7 @@ Instagram からリールを集めて data/reels.json に蓄積する。
 
 収集:
   python3 scripts/collect.py
-  python3 scripts/collect.py --genre ネイル              # 1ジャンルだけ（自動実行はこの形）
+  python3 scripts/collect.py --genre 脱毛                # 1ジャンルだけ（自動実行はこの形）
   python3 scripts/collect.py --limit 3 --headful         # 試運転
   python3 scripts/collect.py --dry-run                   # 保存せず件数だけ確認
 """
@@ -234,8 +234,8 @@ def main():
                         help="先頭N個のハッシュタグだけ処理する（試運転用）")
     parser.add_argument("--delay", type=float, default=10.0,
                         help="ハッシュタグ間・プロフィール間の待機秒数（既定10秒）")
-    parser.add_argument("--max-profiles", type=int, default=20,
-                        help="フォロワー数を取りに行くアカウント数の上限（既定20）")
+    parser.add_argument("--max-profiles", type=int, default=15,
+                        help="フォロワー数を取りに行くアカウント数の上限（既定15）")
     parser.add_argument("--headful", action="store_true", help="ブラウザを表示する")
     parser.add_argument("--dump-dir", help="生レスポンスを保存する（原因調査用）")
     parser.add_argument("--dry-run", action="store_true", help="保存せず件数だけ表示する")

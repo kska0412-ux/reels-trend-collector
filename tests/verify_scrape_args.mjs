@@ -23,7 +23,7 @@ console.log("--- 1. 既定値 ---");
 {
   const a = parseArgs([]);
   check("待機は10秒", a.delay === 10, a.delay);
-  check("プロフィール取得の上限は20件", a.maxProfiles === 20, a.maxProfiles);
+  check("プロフィール取得の上限は15件", a.maxProfiles === 15, a.maxProfiles);
   check("最低件数は5", a.minReels === 5, a.minReels);
   check("limit は0（無制限）", a.limit === 0, a.limit);
   check("既定ではブラウザを表示しない", a.headful === false, a.headful);
@@ -52,9 +52,9 @@ console.log("--- 2. 引数の読み取り ---");
 console.log("--- 3. 実際の設定ファイルを読む ---");
 {
   const pairs = loadTagPairs(CONFIG);
-  check("37組を作る", pairs.length === 37, pairs.length);
+  check("40組を作る", pairs.length === 40, pairs.length);
   const genres = [...new Set(pairs.map((p) => p.genre))];
-  check("6ジャンル", genres.length === 6, genres);
+  check("10ジャンル", genres.length === 10, genres);
   check("設定ファイルの順序を保つ",
         JSON.stringify(genres) ===
           JSON.stringify(Object.keys(JSON.parse(fs.readFileSync(CONFIG, "utf8")).genres)),
@@ -69,9 +69,9 @@ console.log("--- 3. 実際の設定ファイルを読む ---");
 
 console.log("--- 4. ジャンルを絞る ---");
 {
-  const nail = loadTagPairs(CONFIG, "ネイル");
-  check("ネイルだけ7組", nail.length === 7, nail.length);
-  check("全部ネイル", nail.every((p) => p.genre === "ネイル"), nail.map((p) => p.genre));
+  const nail = loadTagPairs(CONFIG, "脱毛");
+  check("脱毛だけ4組", nail.length === 4, nail.length);
+  check("全部脱毛", nail.every((p) => p.genre === "脱毛"), nail.map((p) => p.genre));
   let threw = null;
   try { loadTagPairs(CONFIG, "存在しないジャンル"); } catch (e) { threw = e.message; }
   check("存在しないジャンルは例外にする（黙って0件にしない）",
