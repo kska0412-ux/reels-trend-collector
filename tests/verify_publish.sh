@@ -75,7 +75,47 @@ echo "== 7. ログが書けなくても git は失敗しない =="
 # 存在しないディレクトリ配下を指定して、ログの追記を必ず失敗させる。
 echo "<h1>c</h1>" > docs/index.html
 bash scripts/publish.sh "$W/no/such/dir/collect.log" > "$W/out7.txt" 2>&1
+check "終了コードは0" "$?" "0"
 check "コミットは行われる" "$(git rev-list --count HEAD)" "3"
+check "リモートにも届いている" \
+  "$(git --git-dir="$W/remote.git" show HEAD:docs/index.html 2>/dev/null)" "<h1>c</h1>"
+
+echo "== 8. pushが失敗したら成功を装わない =="
+# 認証切れなどで push が失敗したときに「公開しました」と言ってはいけない。
+# 自動実行が前提のツールなので、誤った成功報告は誰にも気づかれない。
+# 存在しないパスを origin にして、通信なしで push を確実に失敗させる。
+echo "<h1>d</h1>" > docs/index.html
+git remote set-url origin "$W/does-not-exist.git"
+bash scripts/publish.sh > "$W/out8.txt" 2>&1
+check "終了コード1" "$?" "1"
+check "pushに失敗したと言う" "$(grep -c 'pushに失敗' "$W/out8.txt")" "1"
+check "公開したとは言わない" "$(grep -c '公開しました' "$W/out8.txt")" "0"
+git remote set-url origin "$W/remote.git"
+
+echo "== 9. コミットが失敗したら成功を装わない =="
+# launchd から実行されると user.name が未設定でコミットが失敗しうる。
+# ここでは pre-commit フックで確実に失敗させる（環境設定に依存しないため）。
+echo "<h1>e</h1>" > docs/index.html
+mkdir -p .git/hooks
+printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+BEFORE="$(git rev-list --count HEAD)"
+bash scripts/publish.sh > "$W/out9.txt" 2>&1
+check "終了コード1" "$?" "1"
+check "コミットに失敗したと言う" "$(grep -c 'コミットに失敗' "$W/out9.txt")" "1"
+check "公開したとは言わない" "$(grep -c '公開しました' "$W/out9.txt")" "0"
+check "コミットは増えていない" "$(git rev-list --count HEAD)" "$BEFORE"
+rm -f .git/hooks/pre-commit
+
+echo "== 10. git add が失敗したら成功を装わない =="
+# index.lock が残っていると git add は失敗する。ここでも成功を装わないこと。
+echo "<h1>f</h1>" > docs/index.html
+: > .git/index.lock
+bash scripts/publish.sh > "$W/out10.txt" 2>&1
+check "終了コード1" "$?" "1"
+check "git add に失敗したと言う" "$(grep -c 'git add に失敗' "$W/out10.txt")" "1"
+check "公開したとは言わない" "$(grep -c '公開しました' "$W/out10.txt")" "0"
+rm -f .git/index.lock
 
 cd /
 rm -rf "$W"
