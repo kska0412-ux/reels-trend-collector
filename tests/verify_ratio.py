@@ -94,6 +94,12 @@ for bad in (12345, True, 3.14, {"a": 1}, ["x"]):
     except Exception as e:
         check(f"{bad!r} は None（例外を投げない）", False, f"{type(e).__name__}: {e}")
 
+check("タイムゾーンの無い時刻は None（引き算で落ちないため）",
+      parse_timestamp("2026-08-30T12:00:00") is None,
+      parse_timestamp("2026-08-30T12:00:00"))
+check("日付だけの文字列も None", parse_timestamp("2026-08-30") is None,
+      parse_timestamp("2026-08-30"))
+
 print("--- 9. 現在時刻の書式 ---")
 now_str = now_jst_iso()
 check("ISO8601 の文字列を返す", isinstance(now_str, str) and "T" in now_str, now_str)

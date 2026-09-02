@@ -186,5 +186,21 @@ with tempfile.TemporaryDirectory() as tmp:
     check("入力が無ければ [NG] を出す", "[NG]" in r.stdout, r.stdout[:200])
     check("入力が無ければHTMLを書かない", not (tmp / "out2.html").exists(), None)
 
+print("--- 12. タイムゾーンの無い時刻が混ざっても落ちない ---")
+# 実データに1件でも混ざると、以後すべての build_html.py が例外で死ぬ経路だった。
+poisoned = build_fixture(NOW)
+poisoned["reels"]["naive1"] = dict(poisoned["reels"]["r1"])
+poisoned["reels"]["naive1"]["id"] = "naive1"
+poisoned["reels"]["naive1"]["timestamp"] = "2026-08-30T12:00:00"
+try:
+    prows = build_rows(poisoned, now=NOW)
+    check("build_rows が例外を投げない", True)
+    naive = next(r for r in prows if r["id"] == "naive1")
+    check("投稿日時は取れなかった扱い", naive["ageHours"] is None, naive["ageHours"])
+    check("それでも行としては残る（期間フィルタで落とさない）",
+          naive["id"] in {r["id"] for r in select_rows(prows, 180, 0)[0]}, None)
+except Exception as e:
+    check("build_rows が例外を投げない", False, f"{type(e).__name__}: {e}")
+
 print(f"\n結果: {PASS} pass / {FAIL} fail")
 sys.exit(0 if FAIL == 0 else 1)

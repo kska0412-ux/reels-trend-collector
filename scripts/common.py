@@ -34,21 +34,30 @@ def parse_timestamp(ts):
       - 投稿時刻   '2026-08-30T12:00:00+0000'（コロン無しのオフセット）
       - 取得時刻   '2026-09-02T07:00:00+09:00'（コロン付きのオフセット）
 
-    文字列以外を渡されたら None を返す。data/reels.json は人が手で
-    編集しうるファイルで、壊れた値が1つあるだけで収集が丸ごと止まるのを避ける。
+    文字列以外、またはタイムゾーンを持たない時刻は None を返す。
+    data/reels.json は人が手で編集しうるファイルで、壊れた値が1つあるだけで
+    収集や表示が丸ごと止まるのを避ける。タイムゾーンの無い時刻を混ぜると
+    「今」との引き算ができず、以後すべての実行が例外で死ぬ。
     """
     if not isinstance(ts, str) or not ts:
         return None
+
+    parsed = None
     try:
-        return datetime.fromisoformat(ts)
+        parsed = datetime.fromisoformat(ts)
     except ValueError:
-        pass
-    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%f%z"):
-        try:
-            return datetime.strptime(ts, fmt)
-        except ValueError:
-            continue
-    return None
+        for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%f%z"):
+            try:
+                parsed = datetime.strptime(ts, fmt)
+                break
+            except ValueError:
+                continue
+
+    # タイムゾーンを持たない時刻は「取れなかった」として扱う。
+    # 期間フィルタは timestamp が None のリールを落とさないので、投稿自体は残る。
+    if parsed is None or parsed.tzinfo is None:
+        return None
+    return parsed
 
 
 def _as_count(v):
