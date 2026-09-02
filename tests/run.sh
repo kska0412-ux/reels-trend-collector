@@ -18,6 +18,10 @@ echo "===== 1. リール抽出ロジック ====="
 node "$ROOT/tests/verify_extract_reel.mjs"
 
 echo
+echo "===== 1b. リールタブからの読み取り ====="
+node "$ROOT/tests/verify_extract_reel_dom.mjs"
+
+echo
 echo "===== 2. フォロワー数の抽出 ====="
 node "$ROOT/tests/verify_extract_profile.mjs"
 

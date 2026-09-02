@@ -25,10 +25,11 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
-import { extractFromBody } from "./extract_reel.mjs";
+import { extractFromBody, extractAccountsFromBody } from "./extract_reel.mjs";
 import { extractFollowerCount } from "./extract_profile.mjs";
 import { collectWithRetry, isFatal } from "./retry.mjs";
 import { parseArgs, loadTagPairs, loadSkipAccounts } from "./scrape_args.mjs";
+import { REELS_TAB_SCRIPT, buildReels, followerCountOf } from "./extract_reel_dom.mjs";
 import { loadSessionCookies, describeSession } from "./session.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +50,15 @@ const SESSION_FILE = process.env.IG_SESSION_FILE
 // 最初から /popular/ を開けば、転送を待たずにリール一覧を狙える。
 const TAG_URL = (tag) =>
   `https://www.instagram.com/popular/${encodeURIComponent(tag)}/`;
+
+// プロフィールのリールタブのURL。
+// 2026-09-02 に Instagram が再生数を JSON に載せるのをやめた。
+// ハッシュタグページもリール個別ページも "view_count": null になり、
+// "play_count" というキー自体が消えた（ログインの有無を問わず）。
+// このタブだけは再生数がサムネイル上に描かれているので、そこから読む。
+// フォロワー数も同じページに出るので、1回のアクセスで両方取れる。
+const REELS_TAB_URL = (username) =>
+  `https://www.instagram.com/${encodeURIComponent(username)}/reels/`;
 
 // プロフィールページのURL。フォロワー数を取るために開く。
 const PROFILE_URL = (username) =>
@@ -217,14 +227,35 @@ async function harvest(page, url, { dumpDir, dumpLabel, extract, keyOf, waitMs =
   return [...found.values()];
 }
 
-/** ハッシュタグ1つぶんのリールを集める。 */
+/**
+ * ハッシュタグ1つぶんの「候補アカウント」を集める。
+ *
+ * 再生数が JSON から消えたため、ここではリール本体を作らない。
+ * 誰が投稿しているかだけを拾い、再生数はその人のリールタブから取る。
+ * 再生数が JSON に戻ってきたときのために、リールの抽出も併せて試す。
+ */
 async function collectHashtag(page, tag, { dumpDir }) {
-  return harvest(page, TAG_URL(tag), {
+  const found = await harvest(page, TAG_URL(tag), {
     dumpDir,
     dumpLabel: `tag_${tag}`,
-    extract: extractFromBody,
-    keyOf: (r) => r.id,
+    extract: (body) => {
+      const items = [];
+      // 再生数つきで取れたものはそのまま使う（Instagram 側が戻した場合）
+      for (const reel of extractFromBody(body)) {
+        items.push({ kind: "reel", key: `reel:${reel.id}`, reel });
+      }
+      for (const username of extractAccountsFromBody(body)) {
+        items.push({ kind: "account", key: `acct:${username}`, username });
+      }
+      return items;
+    },
+    keyOf: (item) => item.key,
   });
+
+  return {
+    reels: found.filter((x) => x.kind === "reel").map((x) => x.reel),
+    accounts: found.filter((x) => x.kind === "account").map((x) => x.username),
+  };
 }
 
 /**
@@ -254,6 +285,42 @@ async function fetchFollowerCount(page, username, { dumpDir }) {
   return found.reduce((max, item) => (item.count > max ? item.count : max), found[0].count);
 }
 
+/**
+ * 1アカウントのリールタブを開いて、リールとフォロワー数を取る。
+ *
+ * JSON の傍受ではなく、描かれた数字を読む。再生数が JSON から消えたため。
+ * 返り値は { reels, followers }。取れなければ空配列と null。
+ */
+async function collectReelsTab(page, username, { dumpDir, scrolls = 2 }) {
+  await page.goto(REELS_TAB_URL(username), {
+    waitUntil: "domcontentloaded", timeout: 90000,
+  });
+  assertLoggedIn(page);
+
+  // リールが1枚でも描かれるまで待つ。固定待機だと読み込み前に先へ進む。
+  await waitUntil(
+    async () => (await page.$$('a[href*="/reel/"]')).length > 0, 30000);
+
+  let raw = await page.evaluate(REELS_TAB_SCRIPT);
+  // 増えなくなるまでスクロールして追加ぶんを読む
+  for (let i = 0; i < scrolls; i++) {
+    const before = raw.rows.length;
+    await page.mouse.wheel(0, 2500);
+    await sleep(2000);
+    raw = await page.evaluate(REELS_TAB_SCRIPT);
+    if (raw.rows.length === before) break;
+  }
+
+  if (dumpDir) {
+    fs.mkdirSync(dumpDir, { recursive: true });
+    const safe = username.replace(/[^\p{L}\p{N}]+/gu, "_");
+    fs.writeFileSync(path.join(dumpDir, `reelstab_${safe}.json`),
+                     JSON.stringify(raw, null, 2), "utf8");
+  }
+
+  return { reels: buildReels(raw, username), followers: followerCountOf(raw) };
+}
+
 async function runCollect(args) {
   if (!args.genres || !args.out) {
     throw new Error("--genres と --out は必須です。");
@@ -272,7 +339,16 @@ async function runCollect(args) {
       const { genre, hashtag } = pairs[i];
       const label = `[${i + 1}/${pairs.length}] ${genre} / #${hashtag}`;
       const outcome = await collectWithRetry(
-        () => collectHashtag(page, hashtag, { dumpDir: args.dumpDir }),
+        // collectWithRetry は配列を数えてやり直しを決める。
+        // ここで数えたいのは「候補アカウントが何人見つかったか」なので、
+        // アカウントの配列を返し、リールは添えて持ち回る。
+        async () => {
+          const { reels, accounts } = await collectHashtag(page, hashtag,
+                                                           { dumpDir: args.dumpDir });
+          const list = accounts.slice();
+          list.reels = reels;
+          return list;
+        },
         {
           minReels: args.minReels,
           onRetry: (reason) => console.log(`${label}: ${reason} / やり直します`),
@@ -281,10 +357,13 @@ async function runCollect(args) {
 
       if (outcome.error) {
         console.log(`${label}: 失敗 — ${outcome.error}`);
-        results.push({ genre, hashtag, reels: [], error: outcome.error });
+        results.push({ genre, hashtag, reels: [], accounts: [], error: outcome.error });
       } else {
-        console.log(`${label}: ${outcome.reels.length} 件`);
-        results.push({ genre, hashtag, reels: outcome.reels, error: null });
+        const accounts = outcome.reels;   // collectWithRetry の返り値の名前は reels 固定
+        const reels = accounts.reels || [];
+        console.log(`${label}: アカウント ${accounts.length} 件` +
+                    (reels.length ? ` / 再生数つきのリール ${reels.length} 件` : ""));
+        results.push({ genre, hashtag, reels, accounts: [...accounts], error: null });
       }
 
       if (isFatal(outcome.lastError)) break;
@@ -296,34 +375,53 @@ async function runCollect(args) {
       }
     }
 
-    // --- フェーズ2: フォロワー数の補完 ---
-    // 伸び率の分母。1アカウント1回だけ取り、7日はキャッシュを使い回す（collect.py が管理）。
+    // --- フェーズ2: リールタブからの取得 ---
+    // ハッシュタグページで見つけたアカウントのリールタブを開き、
+    // 再生数・いいね・コメント・フォロワー数をまとめて取る。
+    // ハッシュタグページ側は再生数を返さなくなったので、リールの本体はここで集まる。
     const skip = loadSkipAccounts(args.skipAccounts);
     const seen = [];
+    // どのジャンルで見つけたアカウントかを覚えておく。
+    // リールタブから取ったリールに、そのジャンルを引き継ぐため。
+    const genreOf = new Map();
     for (const r of results) {
-      for (const reel of r.reels) {
-        const u = reel.username;
-        if (!u || skip.has(u.toLowerCase()) || seen.includes(u)) continue;
+      // ハッシュタグページで見つけた投稿者と、（もし取れていれば）リールの投稿者
+      const names = [...(r.accounts || []), ...r.reels.map((x) => x.username)];
+      for (const u of names) {
+        if (!u) continue;
+        if (!genreOf.has(u)) genreOf.set(u, []);
+        if (!genreOf.get(u).includes(r.genre)) genreOf.get(u).push(r.genre);
+        if (skip.has(u.toLowerCase()) || seen.includes(u)) continue;
         seen.push(u);
       }
     }
     const targets = seen.slice(0, args.maxProfiles);
     if (seen.length > targets.length) {
       // 黙って捨てない。何を今回取らなかったかを必ず出す。
-      console.log(`\nフォロワー数の取得対象 ${seen.length} 件のうち ` +
-                  `${targets.length} 件だけ取ります（--max-profiles ${args.maxProfiles}）。` +
+      console.log(`\n候補アカウント ${seen.length} 件のうち ` +
+                  `${targets.length} 件のリールタブを開きます（--max-profiles ${args.maxProfiles}）。` +
                   `残りは次回に回ります。`);
     } else if (targets.length) {
-      console.log(`\nフォロワー数を ${targets.length} 件取ります。`);
+      console.log(`\n${targets.length} 件のリールタブを開きます。`);
     }
 
     for (let i = 0; i < targets.length; i++) {
       const username = targets[i];
       const label = `[${i + 1}/${targets.length}] @${username}`;
       try {
-        const count = await fetchFollowerCount(page, username, { dumpDir: args.dumpDir });
-        accounts[username] = count;
-        console.log(`${label}: ${count === null ? "取得できず" : count.toLocaleString()}`);
+        const { reels, followers } = await collectReelsTab(page, username,
+                                                           { dumpDir: args.dumpDir });
+        accounts[username] = followers;
+        // どのジャンルからこのアカウントに辿り着いたかを引き継ぐ。
+        // 引き継がないとジャンル無しのリールになり、絞り込みから漏れる。
+        const genres = genreOf.get(username) || [];
+        for (const g of genres) {
+          const slot = results.find((r) => r.genre === g && r.hashtag === `@${username}`);
+          if (slot) slot.reels.push(...reels);
+          else results.push({ genre: g, hashtag: `@${username}`, reels: [...reels], error: null });
+        }
+        console.log(`${label}: リール ${reels.length} 件 / ` +
+                    `フォロワー ${followers === null ? "取得できず" : followers.toLocaleString()}`);
       } catch (e) {
         const msg = String((e && e.message) || e).split("\n")[0];
         console.log(`${label}: 失敗 — ${msg}`);

@@ -241,6 +241,51 @@ export function parsePayloads(body) {
   return out;
 }
 
+/**
+ * ハッシュタグページのレスポンスから、投稿者のアカウント名を集める。
+ *
+ * 2026-09-02 に Instagram が再生数を JSON に載せるのをやめ、
+ * looksLikeReel（再生数が要る）が1件も通らなくなった。
+ * ただしアカウント名と投稿コードは今も返っている。そこでここでは
+ * 「誰の投稿か」だけを拾い、再生数はプロフィールのリールタブから取る。
+ */
+export function findAccounts(root, { maxDepth = 40 } = {}) {
+  const found = new Set();
+  const seen = new WeakSet();
+
+  const walk = (node, depth) => {
+    if (depth > maxDepth || node === null || typeof node !== "object") return;
+    if (seen.has(node)) return;   // 循環参照よけ
+    seen.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+
+    // 投稿らしいオブジェクト（コードを持つ）に紐づく投稿者だけを拾う。
+    // 単に username を全部集めると、おすすめ欄や検索履歴まで混ざる。
+    if (getCode(node) !== null) {
+      const u = getUsername(node);
+      if (u) found.add(u);
+    }
+
+    for (const key of Object.keys(node)) walk(node[key], depth + 1);
+  };
+
+  walk(root, 0);
+  return [...found];
+}
+
+/** レスポンス本文からアカウント名を集めるところまでを一息でやる。 */
+export function extractAccountsFromBody(body) {
+  const names = new Set();
+  for (const payload of parsePayloads(body)) {
+    for (const u of findAccounts(payload)) names.add(u);
+  }
+  return [...names];
+}
+
 /** レスポンス本文からリールを抜き出すところまでを一息でやる。 */
 export function extractFromBody(body) {
   const reels = [];
