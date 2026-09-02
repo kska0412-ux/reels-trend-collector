@@ -9,9 +9,10 @@
 """
 import sys
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from common import reach_ratio, FOLLOWER_FLOOR, ACCOUNT_TTL_DAYS  # noqa: E402
+from common import reach_ratio, parse_timestamp, now_jst_iso, FOLLOWER_FLOOR, ACCOUNT_TTL_DAYS  # noqa: E402
 
 PASS = FAIL = 0
 
@@ -64,6 +65,42 @@ check("bool は数値として扱わない", reach_ratio(True, 5000) is None, re
 print("--- 6. 再生数 0 は有効な値 ---")
 check("0再生は伸び率 0.0（None ではない）",
       reach_ratio(0, 5000) == 0.0, reach_ratio(0, 5000))
+
+print("--- 7. 時刻のパース ---")
+# Task 8 は取得時刻（コロン付きオフセット）、Task 9 は投稿時刻（コロン無し）を渡す。
+# 両方が通らないと片方のタスクが壊れる。
+posted = parse_timestamp("2026-08-30T12:00:00+0000")
+check("投稿時刻（コロン無しオフセット）が通る", posted is not None, posted)
+check("投稿時刻の中身が正しい",
+      posted is not None and posted.year == 2026 and posted.month == 8
+      and posted.day == 30 and posted.hour == 12, posted)
+check("投稿時刻のオフセットは UTC",
+      posted is not None and posted.utcoffset() == timedelta(0), posted)
+
+fetched = parse_timestamp("2026-09-02T07:00:00+09:00")
+check("取得時刻（コロン付きオフセット）が通る", fetched is not None, fetched)
+check("取得時刻のオフセットは +09:00",
+      fetched is not None and fetched.utcoffset() == timedelta(hours=9), fetched)
+
+print("--- 8. パースできないものは None（例外を投げない） ---")
+check("壊れた文字列は None", parse_timestamp("こわれた日付") is None, None)
+check("空文字は None", parse_timestamp("") is None, None)
+check("None は None", parse_timestamp(None) is None, None)
+# data/reels.json は人が手で編集しうる。数値が紛れ込んでも実行ごと落とさない。
+for bad in (12345, True, 3.14, {"a": 1}, ["x"]):
+    try:
+        got = parse_timestamp(bad)
+        check(f"{bad!r} は None（例外を投げない）", got is None, got)
+    except Exception as e:
+        check(f"{bad!r} は None（例外を投げない）", False, f"{type(e).__name__}: {e}")
+
+print("--- 9. 現在時刻の書式 ---")
+now_str = now_jst_iso()
+check("ISO8601 の文字列を返す", isinstance(now_str, str) and "T" in now_str, now_str)
+check("JST のオフセットが付く", now_str.endswith("+09:00"), now_str)
+parsed_back = parse_timestamp(now_str)
+check("自分が出した文字列を自分で読み戻せる",
+      parsed_back is not None and parsed_back.utcoffset() == timedelta(hours=9), parsed_back)
 
 print(f"\n結果: {PASS} pass / {FAIL} fail")
 sys.exit(0 if FAIL == 0 else 1)

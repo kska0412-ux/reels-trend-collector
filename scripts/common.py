@@ -28,10 +28,16 @@ def now_jst_iso():
 
 def parse_timestamp(ts):
     """
-    投稿時刻 ('2026-08-30T12:00:00+0000' 形式) を datetime に。
-    パースできなければ None。
+    時刻文字列を datetime に。パースできなければ None。
+
+    受け付ける形:
+      - 投稿時刻   '2026-08-30T12:00:00+0000'（コロン無しのオフセット）
+      - 取得時刻   '2026-09-02T07:00:00+09:00'（コロン付きのオフセット）
+
+    文字列以外を渡されたら None を返す。data/reels.json は人が手で
+    編集しうるファイルで、壊れた値が1つあるだけで収集が丸ごと止まるのを避ける。
     """
-    if not ts:
+    if not isinstance(ts, str) or not ts:
         return None
     try:
         return datetime.fromisoformat(ts)
