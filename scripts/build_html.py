@@ -26,7 +26,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import (  # noqa: E402
-    BASE_DIR, DATA_FILE, JST, now_jst_iso, parse_timestamp, reach_ratio,
+    BASE_DIR, CONFIG_FILE, DATA_FILE, JST, now_jst_iso, parse_timestamp, reach_ratio,
     _as_count as _count_or_none,
 )
 
@@ -159,8 +159,27 @@ def embed_json(data):
     )
 
 
+def _genre_order():
+    """
+    config/genres.json に書いた順を返す。読めなければ空リスト。
+
+    タブの並びは持ち主が決めた優先順に従わせる。文字コード順だと
+    本命のジャンルが真ん中に埋もれる。設定が読めなくてもページは
+    作れないと困るので、失敗しても例外にしない。
+    """
+    try:
+        config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return list(config.get("genres", {}))
+
+
 def render_html(rows, generated_at, store, archived):
-    genres = sorted({g for r in rows for g in r["genres"]})
+    # 設定に書いた順を先に、設定に無いジャンル（以前集めたが今は外したもの）を後ろに。
+    # 蓄積データには過去のジャンル名が残るので、それも取りこぼさず出す。
+    order = _genre_order()
+    found = {g for r in rows for g in r["genres"]}
+    genres = [g for g in order if g in found] + sorted(found - set(order))
     hashtags = sorted({h for r in rows for h in r["hashtags"]})
 
     return (

@@ -193,5 +193,17 @@ console.log('--- 9. 他人由来の値が HTML として解釈されないこと
   check('負のコメント数も — と出る', /コメント —/.test(inj.textContent), inj.textContent);
 }
 
+console.log('--- 10. タブの並びは設定ファイルの順に従う ---');
+{
+  // 文字コード順だと持ち主が本命に置いたジャンルが埋もれる。
+  // 設定ファイルに書いた順がそのまま画面の順になること。
+  const cfg = JSON.parse(
+    fs.readFileSync(new URL('../config/genres.json', import.meta.url), 'utf8'));
+  const want = ['全部', ...Object.keys(cfg.genres)];
+  const got = [...doc.querySelectorAll('.tab')].map((t) => t.textContent.trim());
+  check('設定ファイルに書いた順で並ぶ',
+        JSON.stringify(got) === JSON.stringify(want), { got, want });
+}
+
 console.log(`\n結果: ${pass} pass / ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);
