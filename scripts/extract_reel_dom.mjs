@@ -41,6 +41,42 @@ export function looksLikeCount(text) {
   return parseCount(text) !== null;
 }
 
+// Instagram のコードは 64 進数で、デコードすると投稿IDになる。
+// IDの上位ビットに投稿時刻（ミリ秒）が入っている。
+const CODE_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const IG_EPOCH_MS = 1314220021721;
+
+/**
+ * リールのコードから投稿時刻（秒）を復元する。読めなければ null。
+ *
+ * リールタブには投稿日時が出ないため、これが無いと全部「不明」になり、
+ * 新着順と期間の絞り込みが効かなくなる。追加のアクセスは要らない。
+ *
+ * 復元値には数分の誤差がある。実データで検算したところ、
+ * DclRMswTDoi の復元値と実際の taken_at の差は 2.4 分だった。
+ * 誤差があることが分かるよう、呼び出し側で「およそ」と添える。
+ */
+export function timestampFromCode(code) {
+  if (typeof code !== "string" || !code) return null;
+  let pk = 0n;
+  for (const ch of code) {
+    const i = CODE_ALPHABET.indexOf(ch);
+    if (i < 0) return null;          // 想定外の文字が混じったら諦める
+    pk = pk * 64n + BigInt(i);
+  }
+  if (pk <= 0n) return null;
+
+  const seconds = Number(((pk >> 23n) + BigInt(IG_EPOCH_MS)) / 1000n);
+  // 桁数の違うコードから、ありえない日付を作らないための関門。
+  // Instagram の開始（2010年）より前、または1日以上先の未来は捨てる。
+  const nowSec = Date.now() / 1000;
+  if (!Number.isFinite(seconds) || seconds < 1262304000 || seconds > nowSec + 86400) {
+    return null;
+  }
+  return seconds;
+}
+
 /** リンクの href からリールのコードを取り出す。無ければ null。 */
 export function codeFromHref(href) {
   if (typeof href !== "string") return null;
@@ -120,6 +156,7 @@ export function buildReels(raw, username) {
     const code = typeof row.code === "string" ? row.code : null;
     if (!code || seen.has(code)) continue;
     const counts = pickCounts(row.shown, row.hidden);
+    const recovered = timestampFromCode(code);
     // 再生数が読めないものは入れない。伸び率が出せず、順位も付けられない。
     if (counts.play_count === null) continue;
     seen.add(code);
@@ -129,8 +166,10 @@ export function buildReels(raw, username) {
       code,
       username,
       caption: "",
-      timestamp: null,
-      timestamp_estimated: false,
+      // リールタブに投稿日時は出ないので、コードから復元する。
+      // 復元値には数分の誤差があるので、そうと分かる印を立てる。
+      timestamp: recovered === null ? null : new Date(recovered * 1000).toISOString(),
+      timestamp_estimated: recovered !== null,
       permalink: `https://www.instagram.com/reel/${code}/`,
       ...counts,
     });

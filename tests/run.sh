@@ -26,6 +26,10 @@ echo "===== 1c. 待機の処理 ====="
 node "$ROOT/tests/verify_wait_until.mjs"
 
 echo
+echo "===== 1d. 投稿時刻の復元 ====="
+python3 "$ROOT/tests/verify_backfill.py"
+
+echo
 echo "===== 2. フォロワー数の抽出 ====="
 node "$ROOT/tests/verify_extract_profile.mjs"
 

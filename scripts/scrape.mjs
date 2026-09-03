@@ -299,9 +299,9 @@ async function collectReelsTab(page, username, { dumpDir, scrolls = 2 }) {
     .waitForSelector('a[href*="/reel/"]', { timeout: 30000 })
     .then(() => true)
     .catch(() => false);
-  if (!hasReel) {
-    console.log(`  @${username}: リールのリンクが現れませんでした（30秒待機）`);
-  }
+  // ここでは何も出さない。待機が時間切れでも、スクロールのあとに
+  // 取れることがある（実際にそうなった）。最終的に0件だったときだけ、
+  // 呼び出し側が「リール 0 件」と出す。
 
   let raw = await page.evaluate(REELS_TAB_CALL);
   if (!raw || !Array.isArray(raw.rows)) {

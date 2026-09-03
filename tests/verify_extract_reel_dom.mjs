@@ -10,7 +10,7 @@
  */
 import {
   REELS_TAB_CALL, REELS_TAB_SCRIPT, buildReels, codeFromHref, followerCountOf,
-  looksLikeCount, parseCount, pickCounts,
+  looksLikeCount, parseCount, pickCounts, timestampFromCode,
 } from "../scripts/extract_reel_dom.mjs";
 
 let pass = 0, fail = 0;
@@ -67,32 +67,77 @@ console.log("--- 4. 見えている数字が再生数 ---");
 }
 check("引数が無くても落ちない", pickCounts().play_count === null, pickCounts());
 
+console.log("--- 4b. コードから投稿時刻を復元する ---");
+// リールタブに投稿日時は出ない。これが無いと全部「不明」になり、
+// 新着順と期間の絞り込みが効かなくなる
+{
+  // 実ブラウザで taken_at と突き合わせた実データ。
+  // DclRMswTDoi の実際の投稿は 1787917097（2026-08-28 20:38:17 JST）
+  const REAL_TAKEN_AT = 1787917097;
+  const got = timestampFromCode("DclRMswTDoi");
+  check("実在のコードから復元できる", typeof got === "number", got);
+  // 復元値には誤差がある。実測は2.4分だった。10分を超えたら作りが壊れている
+  const diffMin = Math.abs(got - REAL_TAKEN_AT) / 60;
+  check(`実際の投稿時刻との差が10分以内（実測 ${diffMin.toFixed(1)} 分）`,
+        diffMin < 10, diffMin);
+
+  // 新しいコードほど新しい時刻になること。順序が逆だと新着順が壊れる
+  const older = timestampFromCode("DZzebCHRSjF");   // 2026-06-20 ごろ
+  const newer = timestampFromCode("DclRMswTDoi");   // 2026-08-28 ごろ
+  check("新しいコードほど後の時刻になる", newer > older, { older, newer });
+
+  check("読めない文字が混ざれば null", timestampFromCode("###") === null, null);
+  check("空文字は null", timestampFromCode("") === null, null);
+  check("文字列でなければ null",
+        timestampFromCode(null) === null && timestampFromCode(42) === null, null);
+  // 桁数の違うコードから、ありえない日付を作らない
+  check("短すぎるコードは null", timestampFromCode("A") === null, timestampFromCode("A"));
+  check("長すぎるコードは null（未来になる）",
+        timestampFromCode("zzzzzzzzzzzzzzzz") === null,
+        timestampFromCode("zzzzzzzzzzzzzzzz"));
+}
+
 console.log("--- 5. 保存する形に組み立てる ---");
 {
+  // 実在のコードを使う。作り物の短い文字列だと時刻を復元できず、
+  // 「復元できている」ことを確かめられない
+  const A = "DclRMswTDoi";
+  const B = "DZzebCHRSjF";
   const raw = {
     rows: [
-      { code: "AAA", shown: ["4.2万"], hidden: ["1022", "121"] },
-      { code: "BBB", shown: ["2261"], hidden: [] },
+      { code: A, shown: ["4.2万"], hidden: ["1022", "121"] },
+      { code: B, shown: ["2261"], hidden: [] },
       // 再生数が読めないものは落とす。伸び率が出せず順位も付かない
-      { code: "CCC", shown: [], hidden: ["50"] },
+      { code: "DbimAxQMSZL", shown: [], hidden: ["50"] },
       // 同じコードが2回出てきても1件にする
-      { code: "AAA", shown: ["9.9万"], hidden: [] },
+      { code: A, shown: ["9.9万"], hidden: [] },
       { code: null, shown: ["1"], hidden: [] },
     ],
     followerText: "19.2万",
   };
   const reels = buildReels(raw, "ginza.kogao.yuta");
   check("再生数が読めた2件だけ残る", reels.length === 2, reels.map((r) => r.code));
-  check("重複したコードは1件", reels.filter((r) => r.code === "AAA").length === 1, reels);
+  check("重複したコードは1件", reels.filter((r) => r.code === A).length === 1, reels);
   check("先に出てきた方を採用", reels[0].play_count === 42000, reels[0]);
   check("id はコードと同じ", reels[0].id === reels[0].code, reels[0]);
   check("username が入る", reels.every((r) => r.username === "ginza.kogao.yuta"), reels);
   check("permalink を組み立てる",
-        reels[0].permalink === "https://www.instagram.com/reel/AAA/", reels[0].permalink);
-  // 投稿時刻はこのページに出ない。取れないものを埋めない
-  check("時刻は null のまま", reels[0].timestamp === null, reels[0]);
-  check("推定フラグは立てない", reels[0].timestamp_estimated === false, reels[0]);
+        reels[0].permalink === `https://www.instagram.com/reel/${A}/`, reels[0].permalink);
+  // 投稿時刻はこのページに出ないので、コードから復元する
+  check("時刻を復元する", typeof reels[0].timestamp === "string", reels[0].timestamp);
+  check("ISO8601 の形にする",
+        !Number.isNaN(Date.parse(reels[0].timestamp)), reels[0].timestamp);
+  // 復元値には数分の誤差がある。取れた時刻と同じ顔で見せない
+  check("推定であることが分かる印を立てる",
+        reels[0].timestamp_estimated === true, reels[0]);
   check("いいねが無い方は null", reels[1].like_count === null, reels[1]);
+
+  // 時刻が読めないコードでも、再生数が取れていれば取り込む。
+  // 時刻だけ null にして「不明」と出す
+  const odd = buildReels({ rows: [{ code: "AAA", shown: ["100"], hidden: [] }] }, "x");
+  check("時刻が読めなくても取り込む", odd.length === 1, odd);
+  check("その場合の時刻は null", odd[0].timestamp === null, odd[0]);
+  check("推定の印も立てない", odd[0].timestamp_estimated === false, odd[0]);
 
   check("フォロワー数を読む", followerCountOf(raw) === 192000, followerCountOf(raw));
 }
