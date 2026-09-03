@@ -22,6 +22,10 @@ echo "===== 1b. リールタブからの読み取り ====="
 node "$ROOT/tests/verify_extract_reel_dom.mjs"
 
 echo
+echo "===== 1c. 待機の処理 ====="
+node "$ROOT/tests/verify_wait_until.mjs"
+
+echo
 echo "===== 2. フォロワー数の抽出 ====="
 node "$ROOT/tests/verify_extract_profile.mjs"
 

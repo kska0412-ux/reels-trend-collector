@@ -30,6 +30,7 @@ import { extractFollowerCount } from "./extract_profile.mjs";
 import { collectWithRetry, isFatal } from "./retry.mjs";
 import { parseArgs, loadTagPairs, loadSkipAccounts } from "./scrape_args.mjs";
 import { REELS_TAB_CALL, buildReels, followerCountOf } from "./extract_reel_dom.mjs";
+import { waitUntil } from "./wait_until.mjs";
 import { loadSessionCookies, describeSession } from "./session.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -81,14 +82,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * cond() が true になるまで待つ。固定時間の待機だと読み込みが終わる前に
  * 先へ進んでしまい、結果を取りこぼすため。
  */
-async function waitUntil(cond, timeoutMs, intervalMs = 500) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (cond()) return true;
-    await sleep(intervalMs);
-  }
-  return cond();
-}
 
 async function openContext({ headful }) {
   const executablePath = findChrome();
@@ -298,8 +291,17 @@ async function collectReelsTab(page, username, { dumpDir, scrolls = 2 }) {
   assertLoggedIn(page);
 
   // リールが1枚でも描かれるまで待つ。固定待機だと読み込み前に先へ進む。
-  await waitUntil(
-    async () => (await page.$$('a[href*="/reel/"]')).length > 0, 30000);
+  // waitUntil は同期の条件しか扱えない（async を渡すと Promise が truthy に
+  // なって即座に抜ける）。ここは Playwright の待機を使う。
+  // リールを1本も投稿していないアカウントもあるので、見つからなくても
+  // 例外にはせず先へ進み、0件として扱う。
+  const hasReel = await page
+    .waitForSelector('a[href*="/reel/"]', { timeout: 30000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!hasReel) {
+    console.log(`  @${username}: リールのリンクが現れませんでした（30秒待機）`);
+  }
 
   let raw = await page.evaluate(REELS_TAB_CALL);
   if (!raw || !Array.isArray(raw.rows)) {
