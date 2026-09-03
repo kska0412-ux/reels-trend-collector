@@ -9,7 +9,7 @@
   <array>
     <string>/bin/bash</string>
     <string>__ROOT__/scripts/run_collect.sh</string>
-    <string>__GENRE__</string>
+__GENRE_ARGS__
   </array>
 
   <key>WorkingDirectory</key>

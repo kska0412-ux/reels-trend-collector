@@ -3,8 +3,12 @@
 # launchd からジャンルごとに1日1回呼ばれる。手動で実行しても同じことが起きる。
 #
 #   bash scripts/run_collect.sh 育毛
+#   bash scripts/run_collect.sh ヘッドスパ アートメイク リンパ   （まとめて）
 #
 # ジャンル名を省略すると全ジャンルを収集する（アクセス量が増えるので普段は使わない）。
+#
+# 1回で複数ジャンルを回すのは、Mac を開けておく時間帯を減らすため。
+# 1ジャンルずつ19回に散らすと、日中ずっと開けておく必要がある。
 #
 # 自動実行を落とさないための仕掛けが2つ入っている:
 #   1. 排他ロック  同じプロファイルを2つのChromeで開けないため、実行が重なると
@@ -26,7 +30,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 mkdir -p logs
 
-GENRE="${1:-}"
+# ジャンルは複数受け取れる。1つも無ければ全ジャンル。
+GENRES=("$@")
+LABEL="全ジャンル"
+[ ${#GENRES[@]} -gt 0 ] && LABEL="$(printf '%s / ' "${GENRES[@]}" | sed 's| / $||')"
 LOG="logs/collect.log"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 
@@ -50,7 +57,7 @@ take_lock() {
 if ! take_lock; then
   OTHER="$(cat "$LOCK/pid" 2>/dev/null || true)"
   if [ -n "$OTHER" ] && kill -0 "$OTHER" 2>/dev/null; then
-    log "先行する収集が実行中（PID ${OTHER}）のため、${GENRE:-全ジャンル} は見送ります。"
+    log "先行する収集が実行中（PID ${OTHER}）のため、${LABEL} は見送ります。"
     exit 0
   fi
   # 前回が強制終了などで後片付けできなかった跡。放置すると二度と動かない
@@ -64,41 +71,64 @@ fi
 trap 'rm -rf "$LOCK"' EXIT
 # ----------------------------------------------------------------------
 
-log "===== 開始 ${GENRE:-全ジャンル} ====="
-
-COLLECT_ARGS=()
-[ -n "$GENRE" ] && COLLECT_ARGS+=(--genre "$GENRE")
-# macOS 標準の bash 3.2 は、空の配列を set -u 下で "${arr[@]}" と書くと
-# unbound variable で落ちる。+ を挟んで「空なら何も展開しない」ようにする。
-# launchd は必ずジャンル名を渡すので表面化していなかったが、
-# 引数を省いた手動実行はこれまで動いていなかった。
-EXPAND_ARGS=(${COLLECT_ARGS[@]+"${COLLECT_ARGS[@]}"})
+log "===== 開始 ${LABEL} ====="
 
 # --- 収集（失敗したら間を置いて掛け直す） ---
 # -u を付けて出力のバッファリングを切る。付けないと数キロバイト溜まるまで
 # ログに書き出されず、動いているのに止まって見える。
-attempt=1
-collected=0
-for wait in $RETRY_WAITS ""; do
-  if /usr/bin/env python3 -u scripts/collect.py \
-       ${EXPAND_ARGS[@]+"${EXPAND_ARGS[@]}"} >> "$LOG" 2>&1; then
-    collected=1
-    break
-  fi
-  if [ -z "$wait" ]; then
-    log "収集に $attempt 回失敗。ページは更新しません。"
-    break
-  fi
-  log "収集に失敗（$attempt 回目）。${wait}秒後に掛け直します。"
-  sleep "$wait"
-  attempt=$((attempt + 1))
-done
+#
+# 1ジャンルが失敗しても、そこで止めずに次へ進む。まとめて回すので、
+# 1つのつまずきで残り全部を落とすと損が大きい。
+run_one() {
+  # macOS 標準の bash 3.2 は、空の配列を set -u 下で "${arr[@]}" と書くと
+  # unbound variable で落ちる。引数の有無で呼び分ける。
+  local genre="${1:-}"
+  local attempt=1
+  local ok=0
+  for wait in $RETRY_WAITS ""; do
+    ok=0
+    if [ -n "$genre" ]; then
+      /usr/bin/env python3 -u scripts/collect.py --genre "$genre" >> "$LOG" 2>&1 && ok=1
+    else
+      /usr/bin/env python3 -u scripts/collect.py >> "$LOG" 2>&1 && ok=1
+    fi
+    if [ "${ok:-0}" = "1" ]; then
+      # 何回目で通ったかを残す。1回で通ったのか粘ったのかで、
+      # 回線や Instagram 側の調子の読み方が変わる
+      [ "$attempt" -gt 1 ] && log "${genre:-全ジャンル}: $attempt 回目で収集に成功しました。"
+      return 0
+    fi
+    if [ -z "$wait" ]; then
+      log "${genre:-全ジャンル}: $attempt 回失敗しました。"
+      return 1
+    fi
+    log "${genre:-全ジャンル}: 失敗（$attempt 回目）。${wait}秒後に掛け直します。"
+    sleep "$wait"
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
 
-if [ "$collected" -ne 1 ]; then
+collected=0
+failed=0
+if [ ${#GENRES[@]} -eq 0 ]; then
+  run_one && collected=1 || failed=1
+else
+  for g in "${GENRES[@]}"; do
+    if run_one "$g"; then
+      collected=$((collected + 1))
+    else
+      failed=$((failed + 1))
+    fi
+  done
+fi
+
+if [ "$collected" -eq 0 ]; then
+  log "1つも収集できませんでした。ページは更新しません。"
   exit 1
 fi
-if [ "$attempt" -gt 1 ]; then
-  log "$attempt 回目で収集に成功しました。"
+if [ "$failed" -gt 0 ]; then
+  log "$collected 件成功 / $failed 件失敗。取れた分でページを作ります。"
 fi
 
 if ! /usr/bin/env python3 -u scripts/build_html.py >> "$LOG" 2>&1; then
@@ -112,4 +142,4 @@ if ! bash scripts/publish.sh "$LOG"; then
   exit 1
 fi
 
-log "===== 完了 ${GENRE:-全ジャンル} ====="
+log "===== 完了 ${LABEL} ====="

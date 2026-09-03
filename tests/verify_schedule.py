@@ -16,8 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from common import CONFIG_FILE  # noqa: E402
 from schedule import (  # noqa: E402
-    BUSY_WINDOWS, DAY_END, DAY_START, GUARD_MINUTES,
-    busy_with_guard, free_minutes, load_groups, spread,
+    BUSY_WINDOWS, DAY_END, DAY_START, GUARD_MINUTES, MINUTES_PER_GENRE,
+    RUNS_PER_DAY, busy_with_guard, free_blocks, free_minutes, load_groups,
+    make_batches, spread,
 )
 
 PASS = 0
@@ -109,6 +110,58 @@ gaps = [mins[i + 1] - mins[i] for i in range(len(mins) - 1)]
 # 間隔が詰まりすぎると、前の収集が終わる前に次が始まる
 check("間隔が30分以上ある", min(gaps) >= 30, min(gaps))
 print(f"       （最小 {min(gaps)} 分 / 最大 {max(gaps)} 分）")
+
+print("--- 6. 1回にまとめる ---")
+# 1ジャンルずつ散らすと Mac を日中ずっと開けておく必要がある。
+# launchd は寝ている間の予定を起きたときに1回だけ実行するので、
+# 回数が多いほど取りこぼしが増える
+groups = load_groups()
+batches = make_batches(groups)
+check(f"{RUNS_PER_DAY} 回にまとめる", len(batches) == RUNS_PER_DAY, len(batches))
+flat = [g for b in batches for g in b]
+check("1つも落とさない", flat == groups, (len(flat), len(groups)))
+check("同じジャンルを2回入れない", len(set(flat)) == len(flat), flat)
+check("空のまとまりを作らない", all(b for b in batches), batches)
+# 1回だけ極端に長いと、その回だけ枠からはみ出す
+sizes = [len(b) for b in batches]
+check("大きさの差が1以内", max(sizes) - min(sizes) <= 1, sizes)
+check("余りは前に寄せる", sizes == sorted(sizes, reverse=True), sizes)
+check("件数より多い回数は求めない", len(make_batches(["a", "b"], 5)) == 2, None)
+check("空でも落ちない", make_batches([]) == [], None)
+check("0回なら空", make_batches(groups, 0) == [], None)
+
+print("--- 7. 実行が重ならない ---")
+need = max(len(b) for b in batches) * MINUTES_PER_GENRE
+times = spread(len(batches), need=need)
+starts = [h * 60 + m for h, m in times]
+guarded = busy_with_guard()
+
+# Threads と重なると Chrome が2つ立ち上がり、回線と CPU を食い合う
+overlap_threads = []
+for batch, start in zip(batches, starts):
+    end = start + len(batch) * MINUTES_PER_GENRE
+    if any(start < b and end > a for a, b in guarded):
+        overlap_threads.append(f"{start // 60:02d}:{start % 60:02d}")
+check("Threads の帯に重ならない（見込み時間で）", overlap_threads == [], overlap_threads)
+
+# 自分同士が重なると、排他ロックで後発が丸ごと見送られ、
+# そのジャンルは翌日まで収集されない
+overlap_self = []
+for i in range(len(starts) - 1):
+    end = starts[i] + len(batches[i]) * MINUTES_PER_GENRE
+    if starts[i + 1] < end:
+        overlap_self.append((starts[i], starts[i + 1]))
+check("自分同士も重ならない", overlap_self == [], overlap_self)
+
+print("--- 8. 空き枠に収まる見積もりか ---")
+blocks = free_blocks()
+check("空き枠がある", len(blocks) > 0, blocks)
+longest = max(b - a + 1 for a, b in blocks)
+check(f"1回（{need}分）が一番長い枠（{longest}分）に収まる", need <= longest, (need, longest))
+# 見込みを最悪ケースに置くと19ジャンルで9.8時間必要になり、どう並べても
+# 収まらない。実測の2倍という置き方から外れていないこと
+check("1ジャンルの見込みが実測（8分）以上", MINUTES_PER_GENRE >= 8, MINUTES_PER_GENRE)
+check("最悪値（31分）そのままにしていない", MINUTES_PER_GENRE < 31, MINUTES_PER_GENRE)
 
 print(f"\n結果: {PASS} pass / {FAIL} fail")
 sys.exit(0 if FAIL == 0 else 1)

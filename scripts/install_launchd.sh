@@ -31,7 +31,8 @@ else
   bash "$ROOT/scripts/uninstall_launchd.sh" >/dev/null 2>&1 || true
 fi
 
-# 巡回する単位と時刻を schedule.py から読む。1行 "名前<TAB>時<TAB>分"。
+# 1回ぶんと時刻を schedule.py から読む。1行 "ジャンル名を空白区切り<TAB>時<TAB>分"。
+# 1回に複数ジャンルをまとめるのは、Mac を開けておく時間帯を減らすため。
 # 掛け合わせ語（経営・メニューなど）も含む。落とすと #サロン経営 などが
 # 永久に自動収集されない。
 # macOS 標準の bash (3.2) には mapfile が無いため while read で読む。
@@ -40,6 +41,8 @@ HOURS=()
 MINUTES=()
 while IFS=$'\t' read -r name hour minute; do
   [ -z "$name" ] && continue
+  # name は「ヘッドスパ アートメイク …」のように空白区切り。
+  # plist には1ジャンル1要素で並べるので、ここでは1行のまま持つ。
   GENRES+=("$name")
   HOURS+=("$hour")
   MINUTES+=("$minute")
@@ -60,12 +63,25 @@ for i in "${!GENRES[@]}"; do
   LABEL="$PREFIX.$i"
   DEST="$AGENTS/$LABEL.plist"
 
-  sed -e "s|__ROOT__|$ROOT|g" \
-      -e "s|__LABEL__|$LABEL|g" \
-      -e "s|__GENRE__|$GENRE|g" \
-      -e "s|__HOUR__|$HOUR|g" \
-      -e "s|__MINUTE__|$MINUTE|g" \
-      "$TEMPLATE" > "$DEST"
+  # ジャンル名は1つずつ <string> にする。1要素にまとめて渡すと
+  # 「ヘッドスパ アートメイク」という名前のジャンルを探しに行ってしまう。
+  # 差し込みが複数行になるので sed ではなく python3 で組み立てる
+  # （awk は改行を含む変数を受け取れない）。
+  ROOT="$ROOT" LABEL="$LABEL" GENRE="$GENRE" HOUR="$HOUR" MINUTE="$MINUTE" \
+  python3 -c '
+import os, sys, html
+tpl = open(sys.argv[1], encoding="utf-8").read()
+args = "".join(
+    "    <string>%s</string>\n" % html.escape(g)
+    for g in os.environ["GENRE"].split()
+)
+out = (tpl.replace("__GENRE_ARGS__\n", args)
+          .replace("__ROOT__", os.environ["ROOT"])
+          .replace("__LABEL__", os.environ["LABEL"])
+          .replace("__HOUR__", os.environ["HOUR"])
+          .replace("__MINUTE__", os.environ["MINUTE"]))
+open(sys.argv[2], "w", encoding="utf-8").write(out)
+' "$TEMPLATE" "$DEST"
 
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '  %2d:%02d  %s  → %s\n' "$HOUR" "$MINUTE" "$GENRE" "$DEST"

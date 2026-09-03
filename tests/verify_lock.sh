@@ -155,6 +155,42 @@ check "渡したジャンル名が記録される" "$(contains "$W/logs/collect.
 teardown
 
 echo
+echo "--- 6c. 1回に複数ジャンルを渡す ---"
+setup
+echo 0 > "$W/FAIL_TIMES"
+STATUS="$( ( cd "$W" && RTC_AWAKE=1 RTC_RETRY_WAITS="1 1" bash scripts/run_collect.sh ヘッドスパ リンパ 小顔 >/dev/null 2>&1 ); echo $? )"
+check "3ジャンル渡しても動く" "$STATUS" "0"
+check "ジャンル数ぶん収集を呼ぶ" "$(cat "$W/attempts")" "3"
+check "まとめて記録される" "$(contains "$W/logs/collect.log" "開始 ヘッドスパ / リンパ / 小顔")" "yes"
+check "HTMLは1回だけ作る" "$([ -f "$W/built" ] && echo yes || echo no)" "yes"
+teardown
+
+# 1ジャンルが失敗しても、そこで止めずに残りを続ける。
+# まとめて回すので、1つのつまずきで全部落とすと損が大きい
+setup
+cat > "$W/scripts/collect.py" <<'PY2'
+import pathlib, sys
+here = pathlib.Path(__file__).resolve().parent.parent
+n = int((here / "attempts").read_text()) + 1 if (here / "attempts").exists() else 1
+(here / "attempts").write_text(str(n))
+# 「リンパ」だけ必ず失敗させる
+sys.exit(1 if "リンパ" in sys.argv else 0)
+PY2
+STATUS="$( ( cd "$W" && RTC_AWAKE=1 RTC_RETRY_WAITS="1" bash scripts/run_collect.sh ヘッドスパ リンパ 小顔 >/dev/null 2>&1 ); echo $? )"
+check "一部が失敗しても続ける（終了コード0）" "$STATUS" "0"
+check "失敗した件数を記録する" "$(contains "$W/logs/collect.log" "件失敗")" "yes"
+check "取れた分でページを作る" "$([ -f "$W/built" ] && echo yes || echo no)" "yes"
+teardown
+
+# 全部失敗したらページは更新しない。古い内容のまま「更新した」と見せない
+setup
+echo 99 > "$W/FAIL_TIMES"
+STATUS="$( ( cd "$W" && RTC_AWAKE=1 RTC_RETRY_WAITS="1" bash scripts/run_collect.sh ヘッドスパ リンパ >/dev/null 2>&1 ); echo $? )"
+check "全部失敗なら終了コード1" "$STATUS" "1"
+check "その場合はHTMLを作らない" "$([ -f "$W/built" ] && echo yes || echo no)" "no"
+teardown
+
+echo
 echo "--- 7. 日本語メッセージの中の変数 ---"
 # bash は $OTHER）のような書き方で、全角括弧まで変数名として読む。
 # set -u と組み合わさると unbound variable で落ちる（実際に踏んだ）

@@ -44,7 +44,14 @@ EXPECTED_COUNT="$(echo "$EXPECTED_GENRES" | grep -c .)"
 
 PLISTS=("$DRY_DIR"/*.plist)
 ACTUAL_COUNT="${#PLISTS[@]}"
-check "主ジャンルと掛け合わせ語ぶんのplistが作られる" "$ACTUAL_COUNT" "$EXPECTED_COUNT"
+# 1回に複数ジャンルをまとめるので、plist の数は「1日の実行回数」になる。
+# Mac を開けておく時間帯を減らすため、1ジャンル1回では登録しない。
+EXPECTED_RUNS="$(python3 -c "
+import sys; sys.path.insert(0, '$ROOT/scripts')
+from schedule import load_groups, make_batches
+print(len(make_batches(load_groups())))
+")"
+check "1日の実行回数ぶんのplistが作られる" "$ACTUAL_COUNT" "$EXPECTED_RUNS"
 
 echo
 echo "-- 各plistの検証 --"
@@ -97,10 +104,12 @@ for f in "${PLISTS[@]}"; do
   fi
 
   # ジャンル名を集める（ProgramArguments の3番目の <string>）
+  # 1回に複数ジャンルを渡すので、run_collect.sh より後ろの引数を全部拾う
   genre="$(echo "$content" | python3 -c "
 import sys, plistlib
 data = plistlib.loads(sys.stdin.buffer.read())
-print(data['ProgramArguments'][2])
+for g in data['ProgramArguments'][2:]:
+    print(g)
 " 2>/dev/null)"
   ACTUAL_GENRES="$ACTUAL_GENRES$genre
 "
