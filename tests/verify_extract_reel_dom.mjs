@@ -9,7 +9,7 @@
  *   4. 取れなかった値を 0 で埋めない
  */
 import {
-  REELS_TAB_SCRIPT, buildReels, codeFromHref, followerCountOf,
+  REELS_TAB_CALL, REELS_TAB_SCRIPT, buildReels, codeFromHref, followerCountOf,
   looksLikeCount, parseCount, pickCounts,
 } from "../scripts/extract_reel_dom.mjs";
 
@@ -112,6 +112,64 @@ console.log("--- 6. ページ内で動かす関数 ---");
   // クラス名は難読化されていて変わる。大きさで見分ける方式から外れていないこと
   check("大きさで見分けている", /getBoundingClientRect/.test(REELS_TAB_SCRIPT), null);
   check("フォロワー数も同じページから取る", /フォロワー/.test(REELS_TAB_SCRIPT), null);
+}
+
+console.log("--- 7. Playwright に渡す形 ---");
+// page.evaluate は文字列を「式」として評価する。関数のソースをそのまま渡すと
+// 関数オブジェクトが返り、シリアライズできず undefined になる（実際に踏んだ）。
+// ここで「呼び出しまで含んでいるか」を、Playwright と同じ評価のしかたで確かめる。
+{
+  // 偽の DOM。リール2件ぶんのリンクを持たせる。
+  const makeEl = (text, w, h, children = []) => ({
+    textContent: text, children,
+    getBoundingClientRect: () => ({ width: w, height: h }),
+    querySelectorAll: () => children,
+  });
+  const makeLink = (code, shownText, hiddenTexts) => {
+    const kids = [makeEl(shownText, 41, 19),
+                  ...hiddenTexts.map((t) => makeEl(t, 0, 0))];
+    return {
+      getAttribute: (n) => (n === "href" ? `/u/reel/${code}/` : null),
+      querySelectorAll: () => kids,
+    };
+  };
+  const fakeDoc = {
+    querySelectorAll: () => [makeLink("AAA", "4.2万", ["1022", "121"]),
+                             makeLink("BBB", "2261", [])],
+    body: { innerText: "投稿368件 フォロワー 19.2万 人 フォロー中115人" },
+  };
+
+  const prevDoc = globalThis.document;
+  globalThis.document = fakeDoc;
+  let result;
+  try {
+    // Playwright が文字列に対してするのと同じこと（式として評価する）
+    result = (0, eval)(REELS_TAB_CALL);
+  } finally {
+    if (prevDoc === undefined) delete globalThis.document;
+    else globalThis.document = prevDoc;
+  }
+
+  check("式として評価すると値が返る（関数のままにしない）",
+        result !== undefined && typeof result === "object", result);
+  check("rows を持つ", Array.isArray(result && result.rows), result);
+  check("リール2件を読む", result.rows.length === 2, result.rows);
+  check("表示されている数字を shown に入れる",
+        result.rows[0].shown[0] === "4.2万", result.rows[0]);
+  check("隠れている数字を hidden に入れる",
+        result.rows[0].hidden.join(",") === "1022,121", result.rows[0]);
+  check("フォロワーの表記を拾う", result.followerText === "19.2万", result.followerText);
+
+  // 組み立てまで通す
+  const reels = buildReels(result, "tester");
+  check("そのまま buildReels に通せる", reels.length === 2, reels);
+  check("再生数が入る", reels[0].play_count === 42000, reels[0]);
+  check("フォロワーが読める", followerCountOf(result) === 192000, followerCountOf(result));
+
+  // 関数のソースをそのまま渡すと undefined になることを、ここで示しておく
+  const wrong = (0, eval)(REELS_TAB_SCRIPT);
+  check("関数のソースだけでは値にならない（これが原因だった）",
+        typeof wrong === "function", typeof wrong);
 }
 
 console.log(`\n結果: ${pass} pass / ${fail} fail`);

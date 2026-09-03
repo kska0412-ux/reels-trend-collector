@@ -65,10 +65,15 @@ export function pickCounts(shown, hidden) {
 }
 
 /**
- * ページ内で実行する関数を文字列で返す。Playwright の page.evaluate に渡す。
+ * ページ内で実行する関数のソース。Playwright の page.evaluate に渡す。
  *
  * evaluate の中はブラウザ側で動くので、このファイルの他の関数は見えない。
  * 必要な処理は中に閉じて書く。返す形はここのテストと揃えてある。
+ *
+ * 渡すときは必ず REELS_TAB_CALL を使うこと。page.evaluate に文字列を渡すと
+ * 「式」として評価されるので、関数のソースをそのまま渡すと関数オブジェクトが
+ * 返る。関数はシリアライズできないので結果は undefined になり、
+ * 「Cannot read properties of undefined」で落ちる（実際に踏んだ）。
  */
 export const REELS_TAB_SCRIPT = `() => {
   const parseText = (el) => (el.textContent || "").trim();
@@ -96,6 +101,12 @@ export const REELS_TAB_SCRIPT = `() => {
           || body.match(/([\\d.,]+\\s*[KMB]?)\\s+followers/i);
   return { rows, followerText: fm ? fm[1] : null };
 }`;
+
+/**
+ * page.evaluate にそのまま渡せる式。呼び出しまで含んでいる。
+ * これを使わないと関数オブジェクトが返って undefined になる。
+ */
+export const REELS_TAB_CALL = `(${REELS_TAB_SCRIPT})()`;
 
 /**
  * page.evaluate の戻り値を、保存する形のリールの配列にする。

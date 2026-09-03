@@ -29,7 +29,7 @@ import { extractFromBody, extractAccountsFromBody } from "./extract_reel.mjs";
 import { extractFollowerCount } from "./extract_profile.mjs";
 import { collectWithRetry, isFatal } from "./retry.mjs";
 import { parseArgs, loadTagPairs, loadSkipAccounts } from "./scrape_args.mjs";
-import { REELS_TAB_SCRIPT, buildReels, followerCountOf } from "./extract_reel_dom.mjs";
+import { REELS_TAB_CALL, buildReels, followerCountOf } from "./extract_reel_dom.mjs";
 import { loadSessionCookies, describeSession } from "./session.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -301,13 +301,21 @@ async function collectReelsTab(page, username, { dumpDir, scrolls = 2 }) {
   await waitUntil(
     async () => (await page.$$('a[href*="/reel/"]')).length > 0, 30000);
 
-  let raw = await page.evaluate(REELS_TAB_SCRIPT);
+  let raw = await page.evaluate(REELS_TAB_CALL);
+  if (!raw || !Array.isArray(raw.rows)) {
+    // ここで黙って空を返すと「0件だった」と読めてしまう。何が返ったかを見せる
+    throw new Error(
+      `リールタブの読み取りに失敗しました（返り値: ${JSON.stringify(raw)}）。` +
+      "Instagram の表示が変わった可能性があります。"
+    );
+  }
   // 増えなくなるまでスクロールして追加ぶんを読む
   for (let i = 0; i < scrolls; i++) {
     const before = raw.rows.length;
     await page.mouse.wheel(0, 2500);
     await sleep(2000);
-    raw = await page.evaluate(REELS_TAB_SCRIPT);
+    raw = await page.evaluate(REELS_TAB_CALL);
+    if (!raw || !Array.isArray(raw.rows)) break;
     if (raw.rows.length === before) break;
   }
 
