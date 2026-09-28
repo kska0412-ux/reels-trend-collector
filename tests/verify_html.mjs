@@ -128,6 +128,33 @@ console.log('--- 4. 語で検索する ---');
   } else {
     check('掛け合わせ語のデータがフィクスチャにある', false, null);
   }
+  // 「◯◯サロン」「◯◯×サロン」はジャンルと「サロン」の掛け合わせとして読む
+  const sg = Object.keys(CFG.genres).find(x => ROWS0.some(r => r.genres.includes(x)) && !/サロン$/.test(x));
+  const wantSalon = ROWS0.filter(r => (r.genres.includes(sg) || (r.text + ' ' + r.username).includes(sg)) &&
+                                     (r.text + ' ' + r.username).includes('サロン')).length;
+  const counts = [];
+  for (const v of [sg + 'サロン', sg + '×サロン', sg + '✖️サロン', sg + ' ✕ サロン', sg + ' サロン']) {
+    search(v);
+    counts.push(n());
+  }
+  check(`「${sg}サロン」＝「${sg}」×「サロン」（区切りの書き方によらず同じ）`,
+        counts.every(c => c === wantSalon), { counts, wantSalon });
+  search(sg + 'サロン');
+  check('ヒントにジャンルとサロンが出る',
+        doc.getElementById('hint').textContent.includes('「' + sg + '」') &&
+        doc.getElementById('hint').textContent.includes('「サロン」も'),
+        doc.getElementById('hint').textContent);
+  // キャプションに「サロン」を足したリールで、実際に絞れることを確かめる
+  const target = ROWS0.find(r => r.genres.includes(sg));
+  const d4 = new JSDOM(html.replace(JSON.stringify(target.text).slice(1, -1),
+                                    JSON.stringify(target.text + ' サロン').slice(1, -1)),
+                       { runScripts: 'dangerously' });
+  const q4 = d4.window.document.getElementById('q');
+  q4.value = sg + 'さろん'; q4.dispatchEvent(new d4.window.Event('input', { bubbles: true }));
+  check('ひらがなの「◯◯さろん」でもジャンル×サロンで絞れる',
+        d4.window.document.querySelectorAll('.card').length === wantSalon + 1 &&
+        d4.window.document.querySelector('.card .user').textContent === '@' + target.username,
+        d4.window.document.querySelectorAll('.card').length);
   search('');
   check('空欄に戻すと全件', n() === all, n());
   check('空欄のヒントは全ジャンルの案内', doc.getElementById('hint').textContent.includes('全ジャンル'),
@@ -301,9 +328,10 @@ console.log('--- 10. 他人由来の値が HTML として解釈されないこ�
 console.log('--- 11. 入力候補（スマホでも出る自前の一覧） ---');
 {
   const box = doc.getElementById('genre-suggest');
-  const items = [...box.querySelectorAll('.suggest-item')];
+  const allItems = [...box.querySelectorAll('.suggest-item')];
+  const items = allItems.filter(li => !li.classList.contains('combo'));
   const names = items.map(li => li.textContent);
-  const shown = () => items.filter(li => !li.hidden).map(li => li.textContent);
+  const shown = () => allItems.filter(li => !li.hidden).map(li => li.textContent);
   // <datalist> は iPhone の Safari などで一覧が出ないので使わない
   check('datalist を使っていない', doc.querySelector('datalist') === null && !q0.hasAttribute('list'), null);
   check('設定のジャンルが設定の順で全部並ぶ',
@@ -319,7 +347,10 @@ console.log('--- 11. 入力候補（スマホでも出る自前の一覧） ---'
   check('空欄なら全ジャンルが出る', shown().length === names.length, shown().length);
   q0.value = 'ねいる'; fire(q0, 'input');
   check('打ちかけの語で絞る（ひらがなでも当たる）',
-        shown().join('/') === 'ネイル/ジェルネイル/マグネットネイル', shown());
+        shown().join('/') === 'ネイル/ネイルサロン/ジェルネイル/ジェルネイルサロン/マグネットネイル/マグネットネイルサロン',
+        shown());
+  q0.value = 'その1。×ねいる'; fire(q0, 'input');
+  check('「×」の後ろの語で絞る', shown().join('/').startsWith('ネイル/ネイルサロン'), shown());
   q0.value = 'ざざざ'; fire(q0, 'input');
   check('当たる候補が無ければ閉じる', box.hidden === true, shown());
   const one = ROWS0.find(r => /その1。/.test(r.text));
