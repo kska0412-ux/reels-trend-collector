@@ -3,8 +3,8 @@
  * 通信もブラウザも使わない（jsdom はローカルの DOM 実装）。
  *
  * 画面の作りは Threads Research Tool と揃えてある:
- *   上段のチップ = 主ジャンル / 下段のチップ = 掛け合わせ語
- *   並び替えと期間は select、本文検索は input
+ *   ジャンルのタブは置かず、検索窓に語を打って探す（2026-09-28 から）
+ *   検索窓をタップすると収集ジャンルの候補が出る。並び替えと期間は select
  */
 import fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -30,9 +30,12 @@ const cards = () => [...doc.querySelectorAll('.card')];
 const n = () => cards().length;
 const click = (el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
 const fire = (el, type) => el.dispatchEvent(new win.Event(type, { bubbles: true }));
-const genreChips = () => [...doc.querySelectorAll('#genres .chip')];
-const modChips = () => [...doc.querySelectorAll('#modifiers .chip')];
-const nameOf = (c) => c.querySelector('.chip-name').textContent;
+const ROWS0 = JSON.parse(doc.getElementById('data').textContent);
+const CFG = JSON.parse(
+  fs.readFileSync(new URL('../config/genres.json', import.meta.url), 'utf8'));
+const q0 = doc.getElementById('q');
+const search = (v) => { q0.value = v; fire(q0, 'input'); };
+const users = () => cards().map(c => c.querySelector('.user').textContent.replace('@', ''));
 
 console.log('--- 1. 外部リソースは書体だけ ---');
 {
@@ -75,67 +78,82 @@ console.log('--- 2. カードが描画される ---');
         [...first.querySelectorAll('.metric')].map(e => e.textContent));
 }
 
-console.log('--- 3. ジャンルのチップ（上段） ---');
+console.log('--- 3. ジャンルのタブは出さない ---');
 {
-  const chips = genreChips();
+  check('ジャンルのチップ列が無い', doc.getElementById('genres') === null, null);
+  check('掛け合わせのチップ列が無い', doc.getElementById('modifiers') === null, null);
+  check('チップが1つも無い', doc.querySelectorAll('.chip').length === 0, null);
+  check('ジャンル別の棒が無い', doc.querySelectorAll('.bar-row').length === 0, null);
   const declared = Number((doc.querySelector('.ver').textContent.match(/(\d+)ジャンル/) || [])[1]);
-  check('見出しがジャンル数を名乗る', declared > 0, doc.querySelector('.ver').textContent);
-  // 収集がまだのジャンルも並べる。隠すと扱う範囲が狭まったように見える
-  check('「すべて」＋宣言どおりのジャンルが並ぶ', chips.length === declared + 1,
-        { chips: chips.length, declared });
-  check('先頭が「すべて」', nameOf(chips[0]) === 'すべて', nameOf(chips[0]));
-
-  const usable = chips.slice(1).filter(c => !c.classList.contains('pending'));
-  check('データのあるジャンルは押せる', usable.length > 0, chips.slice(1).map(nameOf));
-
-  const before = n();
-  const target = usable[0];
-  click(target);
-  const after = cards();
-  check('押すと件数が減る', after.length > 0 && after.length < before,
-        [before, after.length]);
-  check('残ったカードは全部そのジャンル',
-        after.every(c => [...c.querySelectorAll('.tag')].some(
-          t => t.textContent === nameOf(target))),
-        after.map(c => [...c.querySelectorAll('.tag')].map(t => t.textContent)));
-  check('押したチップに選択状態が付く', target.classList.contains('on'), target.className);
-  check('選択中は「すべて」が消灯', !chips[0].classList.contains('on'), chips[0].className);
-
-  click(chips[0]);
-  check('「すべて」で元に戻る', n() === before, n());
+  check('見出しが設定のジャンル数を名乗る', declared === Object.keys(CFG.genres).length,
+        { declared, config: Object.keys(CFG.genres).length });
+  check('見出しの次が検索窓', doc.querySelector('header').nextElementSibling.classList.contains('controls'),
+        doc.querySelector('header').nextElementSibling.className);
 }
 
-console.log('--- 4. 掛け合わせのチップ（下段） ---');
+console.log('--- 4. 語で検索する ---');
 {
-  const mods = modChips();
-  check('掛け合わせの行がある', mods.length > 1, mods.length);
-  check('先頭が「すべて」', nameOf(mods[0]) === 'すべて', nameOf(mods[0]));
-  check('どちらの行か分かるラベルが付く',
-        [...doc.querySelectorAll('.filter-label')].map(e => e.textContent).join('/')
-          === 'ジャンル/掛け合わせ',
-        [...doc.querySelectorAll('.filter-label')].map(e => e.textContent));
-  // 掛け合わせ語を上段に混ぜると、単独のジャンルとして扱われてしまう
-  check('掛け合わせ語がジャンル行に混ざっていない',
-        mods.slice(1).every(m => !genreChips().some(c => nameOf(c) === nameOf(m))),
-        mods.slice(1).map(nameOf).filter(m => genreChips().some(c => nameOf(c) === m)));
-
-  const usable = mods.slice(1).filter(c => !c.classList.contains('pending'));
-  if (usable.length > 0) {
-    const before = n();
-    click(usable[0]);
-    const after = cards();
-    check('押すと件数が減る', after.length < before, [before, after.length]);
-    check('残ったカードはその掛け合わせのタグを持つ',
-          after.every(c => [...c.querySelectorAll('.tag')].some(
-            t => t.textContent === nameOf(usable[0]))),
-          after.map(c => [...c.querySelectorAll('.tag')].map(t => t.textContent)));
-    click(mods[0]);
-    check('「すべて」で元に戻る', n() === before, n());
+  const all = n();
+  // ジャンル名で探すと、そのジャンルで集めたリール＋キャプションにその語を含むリール
+  const g = ROWS0.find(r => r.genres.length)?.genres[0];
+  const want = ROWS0.filter(r => r.genres.includes(g) || (r.text + ' ' + r.username).includes(g)).length;
+  search(g);
+  check(`ジャンル名「${g}」でジャンル＋キャプション一致`, n() === want && n() > 0 && n() < all,
+        { got: n(), want, all });
+  check('残ったカードは全部そのジャンルか、キャプションにその語を持つ',
+        cards().every(c => [...c.querySelectorAll('.tag')].some(t => t.textContent === g) ||
+                           c.querySelector('.text').textContent.includes(g)), null);
+  // ひらがなでもジャンルに当たる（カタカナのジャンル名をひらがなにして打つ）
+  const kataGenre = Object.keys(CFG.genres).find(x => /^[ァ-ヶー]+$/.test(x) &&
+                                                    ROWS0.some(r => r.genres.includes(x)));
+  const hira = kataGenre.replace(/[ァ-ヶ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+  search(kataGenre); const kataN = n();
+  search(hira);
+  check(`ひらがな「${hira}」でもジャンル「${kataGenre}」に当たる`, n() === kataN && n() > 0, [n(), kataN]);
+  check('ヒントにジャンル名が出る', doc.getElementById('hint').textContent.includes('「' + kataGenre + '」'),
+        doc.getElementById('hint').textContent);
+  // 空白区切りはAND。キャプション固有の語と組み合わせる
+  const one = ROWS0.find(r => /その1。/.test(r.text));
+  search(one.genres[0] + ' その1。');
+  check('空白区切りはAND', n() === 1 && users()[0] === one.username, users());
+  search(one.genres[0] + '　その1。');
+  check('全角空白でも区切れる', n() === 1, users());
+  // 掛け合わせ語（経営など）も検索語として効く。候補には出さない
+  const mod = Object.keys(CFG.modifiers).find(m => ROWS0.some(r => (r.mods || []).includes(m)));
+  if (mod) {
+    const wantMod = ROWS0.filter(r => (r.mods || []).includes(mod) ||
+                                     (r.text + ' ' + r.username).includes(mod)).length;
+    search(mod);
+    check(`掛け合わせ語「${mod}」でも絞れる`, n() === wantMod && n() > 0, { got: n(), wantMod });
   } else {
-    check('該当が無いときは全部が押せない状態', true, null);
-    check('該当が無いときは全部が押せない状態（続き）', true, null);
-    check('該当が無いときは全部が押せない状態（続き2）', true, null);
+    check('掛け合わせ語のデータがフィクスチャにある', false, null);
   }
+  search('');
+  check('空欄に戻すと全件', n() === all, n());
+  check('空欄のヒントは全ジャンルの案内', doc.getElementById('hint').textContent.includes('全ジャンル'),
+        doc.getElementById('hint').textContent);
+
+  // 「検索」ボタン/Enter でページが再読み込みされない
+  const form = doc.getElementById('search');
+  q0.value = g;
+  const ev = new win.Event('submit', { bubbles: true, cancelable: true });
+  form.dispatchEvent(ev);
+  check('送信してもページ遷移しない', ev.defaultPrevented, null);
+  check('送信で検索が効く', n() === want, n());
+  search('');
+
+  // ?q= 付きで開くと、その語で検索した状態から始まる
+  const urlDom = new JSDOM(html, { runScripts: 'dangerously',
+    url: 'https://example.com/reels-trend-collector/?q=' + encodeURIComponent(g) });
+  const ud = urlDom.window.document;
+  check('?q= の語で検索した状態で開く',
+        ud.getElementById('q').value === g && ud.querySelectorAll('.card').length === want,
+        { q: ud.getElementById('q').value, n: ud.querySelectorAll('.card').length, want });
+  const uq = ud.getElementById('q');
+  uq.value = 'その1。'; uq.dispatchEvent(new urlDom.window.Event('input', { bubbles: true }));
+  check('入力するとURLの ?q= も変わる',
+        new urlDom.window.URL(urlDom.window.location.href).searchParams.get('q') === 'その1。',
+        urlDom.window.location.href);
 }
 
 console.log('--- 5. 並び替えと期間 ---');
@@ -213,22 +231,16 @@ console.log('--- 7. 絞り込みで0件になったとき ---');
   check('空に戻すとカードが戻る', n() > 0, n());
 }
 
-console.log('--- 8. 集計 ---');
+console.log('--- 8. 集計タイルと最終収集の行は出さない ---');
 {
-  check('集計パネルがある', doc.querySelector('.summary') !== null, null);
-  check('統計タイルが4枚', doc.querySelectorAll('.stat').length === 4,
-        doc.querySelectorAll('.stat').length);
-  const labels = [...doc.querySelectorAll('.stat-label')].map(e => e.textContent);
-  check('リールの言葉づかいになっている',
-        labels.includes('表示中のリール') && labels.includes('伸び率100倍超'), labels);
-  const declared = Number((doc.querySelector('.ver').textContent.match(/(\d+)ジャンル/) || [])[1]);
-  check('ジャンル別の棒が宣言どおり並ぶ',
-        doc.querySelectorAll('.bar-row').length === declared,
-        doc.querySelectorAll('.bar-row').length);
-  check('最終収集は収集した時刻を出す（HTMLを組んだ時刻ではない）',
-        doc.getElementById('stamp').textContent.includes(
-          JSON.parse(doc.getElementById('summary-data').textContent).updatedAt),
-        doc.getElementById('stamp').textContent);
+  check('集計パネルが無い', doc.querySelector('.summary') === null && doc.querySelectorAll('.stat').length === 0, null);
+  check('最終収集の行が無い', doc.getElementById('stamp') === null && !doc.body.textContent.includes('最終収集'), null);
+  // doctype が無いと互換モードで描かれ、アプリ内ブラウザで崩れる原因になる
+  check('標準モードで描かれる（doctype あり）', doc.compatMode === 'CSS1Compat', doc.compatMode);
+  check('言語が日本語', doc.documentElement.getAttribute('lang') === 'ja', null);
+  // LINE のアプリ内ブラウザが古い版を出し続けないよう、取り直しを求める
+  check('キャッシュしない指定がある',
+        !!doc.querySelector('meta[http-equiv="Cache-Control"][content*="no-cache"]'), null);
 }
 
 console.log('--- 9. 件数上限に当たった版 ---');
@@ -237,10 +249,7 @@ console.log('--- 9. 件数上限に当たった版 ---');
   const d2 = new JSDOM(trimmed, { runScripts: 'dangerously' });
   check('3件に絞られている', d2.window.document.querySelectorAll('.card').length === 3,
         d2.window.document.querySelectorAll('.card').length);
-  check('蓄積のうち何件を出したか分かる',
-        /蓄積 \d+ 件のうち \d+ 件を表示/.test(
-          d2.window.document.getElementById('stamp').textContent),
-        d2.window.document.getElementById('stamp').textContent);
+  check('蓄積件数の行は出さない', !d2.window.document.body.textContent.includes('蓄積'), null);
 }
 
 console.log('--- 10. 他人由来の値が HTML として解釈されないこと ---');
@@ -289,27 +298,62 @@ console.log('--- 10. 他人由来の値が HTML として解釈されないこ�
   check('負のコメント数も — と出る', /コメント —/.test(inj.textContent), inj.textContent);
 }
 
-console.log('--- 11. 棒グラフの並びは設定ファイルの順に従う ---');
+console.log('--- 11. 入力候補（スマホでも出る自前の一覧） ---');
 {
-  // 文字コード順だと持ち主が本命に置いたジャンルが埋もれる。
-  // データがあるものを件数順で先に、まだ0件のものを設定の順で後ろに置く。
-  const cfg = JSON.parse(
-    fs.readFileSync(new URL('../config/genres.json', import.meta.url), 'utf8'));
-  const bars = [...doc.querySelectorAll('.bar-row')];
-  const names = bars.map(b => b.querySelector('.bar-name').textContent);
-  check('設定にあるジャンルだけが並ぶ',
-        names.every(x => Object.keys(cfg.genres).includes(x)),
-        names.filter(x => !Object.keys(cfg.genres).includes(x)));
-  const pendingNames = bars.filter(b => b.classList.contains('pending'))
-    .map(b => b.querySelector('.bar-name').textContent);
-  const wantPendingOrder = Object.keys(cfg.genres).filter(g => pendingNames.includes(g));
-  check('まだ0件のジャンルは設定の順で後ろに並ぶ',
-        JSON.stringify(pendingNames) === JSON.stringify(wantPendingOrder),
-        { got: pendingNames, want: wantPendingOrder });
-  check('0件のジャンルには「収集待ち」と出る',
-        bars.filter(b => b.classList.contains('pending'))
-            .every(b => b.querySelector('.bar-count').textContent === '収集待ち'),
-        pendingNames);
+  const box = doc.getElementById('genre-suggest');
+  const items = [...box.querySelectorAll('.suggest-item')];
+  const names = items.map(li => li.textContent);
+  const shown = () => items.filter(li => !li.hidden).map(li => li.textContent);
+  // <datalist> は iPhone の Safari などで一覧が出ないので使わない
+  check('datalist を使っていない', doc.querySelector('datalist') === null && !q0.hasAttribute('list'), null);
+  check('設定のジャンルが設定の順で全部並ぶ',
+        JSON.stringify(names) === JSON.stringify(Object.keys(CFG.genres)), names);
+  check('掛け合わせ語は候補に出さない', !names.some(x => x in CFG.modifiers), null);
+  check('依頼の新ジャンルが候補に入る',
+        ['リラク', 'まつ毛パーマ', '腸もみ', 'シミ', 'ハーブピーリング', '姿勢'].every(x => names.includes(x)), names);
+  // 前の節で検索語を打っているので、いったんフォーカスを外して閉じた状態から始める
+  q0.dispatchEvent(new win.FocusEvent('blur'));
+  check('フォーカスが無ければ閉じている', box.hidden === true, box.hidden);
+  q0.dispatchEvent(new win.FocusEvent('focus'));
+  check('タップ（フォーカス）で開く', box.hidden === false && q0.getAttribute('aria-expanded') === 'true', null);
+  check('空欄なら全ジャンルが出る', shown().length === names.length, shown().length);
+  q0.value = 'ねいる'; fire(q0, 'input');
+  check('打ちかけの語で絞る（ひらがなでも当たる）',
+        shown().join('/') === 'ネイル/ジェルネイル/マグネットネイル', shown());
+  q0.value = 'ざざざ'; fire(q0, 'input');
+  check('当たる候補が無ければ閉じる', box.hidden === true, shown());
+  const one = ROWS0.find(r => /その1。/.test(r.text));
+  q0.value = 'その1。 ' + one.genres[0].slice(0, 2); fire(q0, 'input');
+  const item = items.find(li => li.textContent === one.genres[0]);
+  const md = new win.MouseEvent('mousedown', { bubbles: true, cancelable: true });
+  item.dispatchEvent(md);
+  check('押した瞬間はフォーカスを動かさない', md.defaultPrevented, null);
+  item.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  check('選ぶと最後の語が置き換わる', q0.value === 'その1。 ' + one.genres[0], q0.value);
+  check('選ぶと閉じる', box.hidden === true, box.hidden);
+  check('選ぶと検索が効く', n() === 1 && users()[0] === one.username, users());
+  q0.dispatchEvent(new win.FocusEvent('blur'));
+  check('外をタップすると閉じる', box.hidden === true, box.hidden);
+  // アプリ内ブラウザでは focus が来ないことがあるので、タップ（click）でも開く
+  click(q0);
+  check('タップだけでも開く', box.hidden === false, box.hidden);
+  q0.dispatchEvent(new win.FocusEvent('blur'));
+  // キーボード操作（PC）
+  q0.value = ''; fire(q0, 'input');
+  q0.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  const ent = new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  q0.dispatchEvent(ent);
+  check('↓とEnterで先頭の候補に決まる', q0.value === names[0] && ent.defaultPrevented, q0.value);
+  q0.dispatchEvent(new win.FocusEvent('focus'));
+  q0.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check('Escで閉じる', box.hidden === true, box.hidden);
+  // 変換中の Enter では候補を決めない
+  q0.value = ''; fire(q0, 'input');
+  q0.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+  q0.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: true }));
+  check('変換確定のEnterでは決めない', q0.value === '', q0.value);
+  q0.dispatchEvent(new win.FocusEvent('blur'));
+  check('候補を閉じて全件に戻る', box.hidden === true && n() === ROWS0.length, [box.hidden, n()]);
 }
 
 console.log('--- 12. 復元した投稿時刻には「およそ」と出す ---');

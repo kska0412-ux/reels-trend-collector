@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from common import CONFIG_FILE  # noqa: E402
 from schedule import (  # noqa: E402
     BUSY_WINDOWS, DAY_END, DAY_START, GUARD_MINUTES, MINUTES_PER_GENRE,
-    RUNS_PER_DAY, busy_with_guard, free_blocks, free_minutes, load_groups,
-    make_batches, spread,
+    RUNS_PER_DAY, UNITS_PER_RUN, busy_with_guard, cycle_days, free_blocks,
+    free_minutes, load_groups, plan_runs, spread,
 )
 
 PASS = 0
@@ -98,59 +98,39 @@ check("重複しない", len(set(groups)) == len(groups), groups)
 check("設定に書いた順を保つ",
       groups == list(config["genres"]) + list(config.get("modifiers") or {}), groups)
 
-print("--- 実際の設定での割り当て ---")
-times = spread(len(groups))
-check(f"{len(groups)}件ぶん割り当てる", len(times) == len(groups), len(times))
-mins = minutes(times)
-check("Threads の時間帯に1件も入らない",
-      not any(a <= m < b for m in mins for a, b in guarded),
-      [f"{h:02d}:{m:02d}" for (h, m), x in zip(times, mins)
-       if any(a <= x < b for a, b in guarded)])
-gaps = [mins[i + 1] - mins[i] for i in range(len(mins) - 1)]
-# 間隔が詰まりすぎると、前の収集が終わる前に次が始まる
-check("間隔が30分以上ある", min(gaps) >= 30, min(gaps))
-print(f"       （最小 {min(gaps)} 分 / 最大 {max(gaps)} 分）")
-
-print("--- 6. 1回にまとめる ---")
-# 1ジャンルずつ散らすと Mac を日中ずっと開けておく必要がある。
-# launchd は寝ている間の予定を起きたときに1回だけ実行するので、
-# 回数が多いほど取りこぼしが増える
+print("--- 6. 1日の回数と1回の単位数 ---")
+# 46単位を毎日全部回すと Instagram へのアクセスが増え、Mac の空き枠にも
+# 収まらない。1日のアクセス量は据え置き、残りは翌日以降に回す
 groups = load_groups()
-batches = make_batches(groups)
-check(f"{RUNS_PER_DAY} 回にまとめる", len(batches) == RUNS_PER_DAY, len(batches))
-flat = [g for b in batches for g in b]
-check("1つも落とさない", flat == groups, (len(flat), len(groups)))
-check("同じジャンルを2回入れない", len(set(flat)) == len(flat), flat)
-check("空のまとまりを作らない", all(b for b in batches), batches)
-# 1回だけ極端に長いと、その回だけ枠からはみ出す
-sizes = [len(b) for b in batches]
-check("大きさの差が1以内", max(sizes) - min(sizes) <= 1, sizes)
-check("余りは前に寄せる", sizes == sorted(sizes, reverse=True), sizes)
-check("件数より多い回数は求めない", len(make_batches(["a", "b"], 5)) == 2, None)
-check("空でも落ちない", make_batches([]) == [], None)
-check("0回なら空", make_batches(groups, 0) == [], None)
+runs, per_run = plan_runs(len(groups))
+check(f"1日 {RUNS_PER_DAY} 回", runs == RUNS_PER_DAY, runs)
+check(f"1回 {UNITS_PER_RUN} 単位で頭打ち", per_run == UNITS_PER_RUN, per_run)
+# 19単位を毎日回していた頃と同じ量。増やすとアカウント停止の危険が上がる
+check("1日のアクセス量を増やしていない（20単位/日以下）", runs * per_run <= 20, runs * per_run)
+days = cycle_days(len(groups))
+check(f"一周が3日以内（{days:.1f}日）", days <= 3, days)
+check("単位が少なければ1日で回りきる分に縮める", plan_runs(6) == (4, 2), plan_runs(6))
+check("単位が回数より少なければ回数も縮める", plan_runs(2) == (2, 1), plan_runs(2))
+check("0件なら回さない", plan_runs(0) == (0, 0), plan_runs(0))
 
 print("--- 7. 実行が重ならない ---")
-need = max(len(b) for b in batches) * MINUTES_PER_GENRE
-times = spread(len(batches), need=need)
+need = per_run * MINUTES_PER_GENRE
+times = spread(runs, need=need)
 starts = [h * 60 + m for h, m in times]
 guarded = busy_with_guard()
+check(f"{runs}回ぶん時刻を割り当てる", len(times) == runs, times)
 
 # Threads と重なると Chrome が2つ立ち上がり、回線と CPU を食い合う
 overlap_threads = []
-for batch, start in zip(batches, starts):
-    end = start + len(batch) * MINUTES_PER_GENRE
+for start in starts:
+    end = start + need
     if any(start < b and end > a for a, b in guarded):
         overlap_threads.append(f"{start // 60:02d}:{start % 60:02d}")
 check("Threads の帯に重ならない（見込み時間で）", overlap_threads == [], overlap_threads)
 
-# 自分同士が重なると、排他ロックで後発が丸ごと見送られ、
-# そのジャンルは翌日まで収集されない
-overlap_self = []
-for i in range(len(starts) - 1):
-    end = starts[i] + len(batches[i]) * MINUTES_PER_GENRE
-    if starts[i + 1] < end:
-        overlap_self.append((starts[i], starts[i + 1]))
+# 自分同士が重なると、排他ロックで後発が丸ごと見送られる
+overlap_self = [(starts[i], starts[i + 1]) for i in range(len(starts) - 1)
+                if starts[i + 1] < starts[i] + need]
 check("自分同士も重ならない", overlap_self == [], overlap_self)
 
 print("--- 8. 空き枠に収まる見積もりか ---")
@@ -158,8 +138,7 @@ blocks = free_blocks()
 check("空き枠がある", len(blocks) > 0, blocks)
 longest = max(b - a + 1 for a, b in blocks)
 check(f"1回（{need}分）が一番長い枠（{longest}分）に収まる", need <= longest, (need, longest))
-# 見込みを最悪ケースに置くと19ジャンルで9.8時間必要になり、どう並べても
-# 収まらない。実測の2倍という置き方から外れていないこと
+# 見込みを最悪ケースに置くとどう並べても収まらない。実測の2倍という置き方から外れていないこと
 check("1ジャンルの見込みが実測（8分）以上", MINUTES_PER_GENRE >= 8, MINUTES_PER_GENRE)
 check("最悪値（31分）そのままにしていない", MINUTES_PER_GENRE < 31, MINUTES_PER_GENRE)
 

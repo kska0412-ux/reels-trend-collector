@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # 1ジャンルぶんの収集 → HTML生成 → GitHub Pages へ公開 まで一息で実行する。
-# launchd からジャンルごとに1日1回呼ばれる。手動で実行しても同じことが起きる。
+# launchd から1日4回、--next 5 で呼ばれる。手動で実行しても同じことが起きる。
 #
+#   bash scripts/run_collect.sh --next 5                          （自動実行はこの形）
 #   bash scripts/run_collect.sh 育毛
 #   bash scripts/run_collect.sh ヘッドスパ アートメイク リンパ   （まとめて）
+#
+# --next N は、最後に回してから一番時間が経っている N 単位を scripts/rotation.py が
+# 選ぶ。46単位を毎日全部回すと Instagram へのアクセスが増えすぎるため。
 #
 # ジャンル名を省略すると全ジャンルを収集する（アクセス量が増えるので普段は使わない）。
 #
@@ -31,9 +35,18 @@ cd "$ROOT"
 mkdir -p logs
 
 # ジャンルは複数受け取れる。1つも無ければ全ジャンル。
-GENRES=("$@")
-LABEL="全ジャンル"
-[ ${#GENRES[@]} -gt 0 ] && LABEL="$(printf '%s / ' "${GENRES[@]}" | sed 's| / $||')"
+# --next N なら、最後に回してから一番時間が経っている N 単位を回す（自動実行はこの形）。
+# どれを回すかはロックを取ってから決める。先に決めると、重なった2回が同じ単位を選ぶ。
+ROTATE_COUNT=""
+if [ "${1:-}" = "--next" ]; then
+  ROTATE_COUNT="${2:-5}"
+  GENRES=()
+  LABEL="次の${ROTATE_COUNT}単位"
+else
+  GENRES=("$@")
+  LABEL="全ジャンル"
+  [ ${#GENRES[@]} -gt 0 ] && LABEL="$(printf '%s / ' "${GENRES[@]}" | sed 's| / $||')"
+fi
 LOG="logs/collect.log"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 
@@ -70,6 +83,18 @@ if ! take_lock; then
 fi
 trap 'rm -rf "$LOCK"' EXIT
 # ----------------------------------------------------------------------
+
+if [ -n "$ROTATE_COUNT" ]; then
+  # macOS 標準の bash 3.2 には mapfile が無いため while read で読む
+  while IFS= read -r g; do
+    [ -n "$g" ] && GENRES+=("$g")
+  done < <(/usr/bin/env python3 scripts/rotation.py pick "$ROTATE_COUNT" 2>> "$LOG")
+  if [ ${#GENRES[@]} -eq 0 ]; then
+    log "回す単位を決められませんでした（config/genres.json を確認してください）。"
+    exit 1
+  fi
+  LABEL="$(printf '%s / ' "${GENRES[@]}" | sed 's| / $||')"
+fi
 
 log "===== 開始 ${LABEL} ====="
 
@@ -119,6 +144,12 @@ else
       collected=$((collected + 1))
     else
       failed=$((failed + 1))
+    fi
+    # 失敗しても「回した」と記録する。記録しないと、取れないタグを持つ単位が
+    # 毎回いちばん古いまま選ばれ続け、他の単位の枠を食い続けるため
+    if [ -n "$ROTATE_COUNT" ]; then
+      /usr/bin/env python3 scripts/rotation.py mark "$g" >> "$LOG" 2>&1 \
+        || log "${g}: 実行記録を書けませんでした。"
     fi
   done
 fi

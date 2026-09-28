@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import JST  # noqa: E402
-from build_html import build_rows, select_rows, build_summary  # noqa: E402
+from build_html import build_rows, search_genres, select_rows  # noqa: E402
 from make_fixture import build as build_fixture, GENRES  # noqa: E402
 
 PASS = FAIL = 0
@@ -123,25 +123,16 @@ check("4件ちょうど", len(selected) == 4, len(selected))
 check("id が重複しない", len({r["id"] for r in selected}) == 4,
       [r["id"] for r in selected])
 
-print("--- 9. 集計 ---")
-summary = build_summary(rows, store, archived=TOTAL)
-check("総数", summary["total"] == TOTAL, summary["total"])
-# ジャンル構成は設定で変わりうるので、数ではなくデータと突き合わせる
-check("データにあるジャンルを全部数える",
-      {g for g, _ in summary["genres"]} == {g for r in rows for g in r["genres"]},
-      summary["genres"])
-check("ジャンルは件数の多い順", 
-      all(summary["genres"][i][1] >= summary["genres"][i + 1][1]
-          for i in range(len(summary["genres"]) - 1)), summary["genres"])
-check("アカウント数", summary["authors"] == len({r["username"] for r in rows}),
-      summary["authors"])
-check("伸び率100倍超の件数が数えられている",
-      summary["overRatio"] == len([r for r in rows if r["ratio"] is not None
-                                   and r["ratio"] >= 100]), summary["overRatio"])
-check("今週の件数", summary["thisWeek"] == len([r for r in rows
-                                            if r["ageHours"] is not None
-                                            and r["ageHours"] <= 168]),
-      summary["thisWeek"])
+print("--- 9. 検索窓の候補に出すジャンル ---")
+# 集計タイルと棒グラフは廃止した。ジャンル一覧は検索窓の候補にだけ使う
+names = search_genres(rows, ["設定のジャンル", "未収集のジャンル"])
+check("設定に書いた順が先", names[:2] == ["設定のジャンル", "未収集のジャンル"], names[:3])
+check("まだ収集していないジャンルも候補に出す", "未収集のジャンル" in names, names)
+check("データにだけあるジャンルも後ろに足す",
+      {g for r in rows for g in r["genres"]} <= set(names), names)
+check("同じ名前を二重に出さない", len(names) == len(set(names)), names)
+check("設定が空でもデータから組める",
+      set(search_genres(rows, [])) == {g for r in rows for g in r["genres"]}, None)
 
 print("--- 10. 伸び率が取れていない行は並び順の最後 ---")
 # build_rows は伸び率の降順で返す。取れなかった行（None）は必ず末尾に固まる。

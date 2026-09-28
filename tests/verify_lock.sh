@@ -191,6 +191,73 @@ check "その場合はHTMLを作らない" "$([ -f "$W/built" ] && echo yes || e
 teardown
 
 echo
+echo "--- 6d. 自動実行（--next）はその場で回す単位を選ぶ ---"
+# 偽の rotation.py。pick は PICKS の中身をそのまま返し、mark は MARKED に追記する
+fake_rotation() {
+  cat > "$W/scripts/rotation.py" <<'PY3'
+import pathlib, sys
+here = pathlib.Path(__file__).resolve().parent.parent
+if sys.argv[1] == "pick":
+    picks = (here / "PICKS").read_text().split() if (here / "PICKS").exists() else []
+    print("\n".join(picks[:int(sys.argv[2])]))
+elif sys.argv[1] == "mark":
+    with open(here / "MARKED", "a") as f:
+        f.write(sys.argv[2] + "\n")
+PY3
+}
+setup
+fake_rotation
+echo 0 > "$W/FAIL_TIMES"
+printf 'リラク\nマツエク\n便秘\nシミ\n' > "$W/PICKS"
+STATUS="$( ( cd "$W" && RTC_AWAKE=1 RTC_RETRY_WAITS="1" bash scripts/run_collect.sh --next 3 >/dev/null 2>&1 ); echo $? )"
+check "--next 3 で動く" "$STATUS" "0"
+check "選ばれた数だけ収集を呼ぶ" "$(cat "$W/attempts")" "3"
+check "選ばれた単位が記録される" "$(contains "$W/logs/collect.log" "開始 リラク / マツエク / 便秘")" "yes"
+check "回した単位を全部記録する" "$(tr '\n' ' ' < "$W/MARKED")" "リラク マツエク 便秘 "
+check "ページまで作る" "$([ -f "$W/published" ] && echo yes || echo no)" "yes"
+teardown
+
+# 失敗した単位も「回した」と記録する。記録しないと、取れない単位が毎回選ばれ続ける
+setup
+fake_rotation
+cat > "$W/scripts/collect.py" <<'PY4'
+import pathlib, sys
+here = pathlib.Path(__file__).resolve().parent.parent
+n = int((here / "attempts").read_text()) + 1 if (here / "attempts").exists() else 1
+(here / "attempts").write_text(str(n))
+sys.exit(1 if "便秘" in sys.argv else 0)
+PY4
+printf 'リラク\n便秘\n' > "$W/PICKS"
+STATUS="$( ( cd "$W" && RTC_AWAKE=1 RTC_RETRY_WAITS=" " bash scripts/run_collect.sh --next 2 >/dev/null 2>&1 ); echo $? )"
+check "一部失敗でも終了コード0" "$STATUS" "0"
+check "失敗した単位も記録する" "$(tr '\n' ' ' < "$W/MARKED")" "リラク 便秘 "
+teardown
+
+# 回す単位が1つも決まらなければ、何もせず失敗で終わる（空回りで公開しない）
+setup
+fake_rotation
+STATUS="$( ( cd "$W" && RTC_AWAKE=1 RTC_RETRY_WAITS=" " bash scripts/run_collect.sh --next 5 >/dev/null 2>&1 ); echo $? )"
+check "単位が決まらなければ終了コード1" "$STATUS" "1"
+check "その場合は収集を呼ばない" "$([ -f "$W/attempts" ] && echo yes || echo no)" "no"
+check "その場合は公開しない" "$([ -f "$W/published" ] && echo yes || echo no)" "no"
+teardown
+
+# 先行が実行中なら、単位を選ぶ前に譲る。選んでから譲ると同じ単位を二重に選ぶ
+setup
+fake_rotation
+printf 'リラク\n' > "$W/PICKS"
+sleep 30 &
+HOLDER=$!
+mkdir -p "$W/logs/collect.lock"
+echo "$HOLDER" > "$W/logs/collect.lock/pid"
+STATUS="$( ( cd "$W" && RTC_AWAKE=1 bash scripts/run_collect.sh --next 5 >/dev/null 2>&1 ); echo $? )"
+check "重なったら譲る（終了コード0）" "$STATUS" "0"
+check "譲るときは記録を書かない" "$([ -f "$W/MARKED" ] && echo yes || echo no)" "no"
+kill "$HOLDER" 2>/dev/null
+wait "$HOLDER" 2>/dev/null
+teardown
+
+echo
 echo "--- 7. 日本語メッセージの中の変数 ---"
 # bash は $OTHER）のような書き方で、全角括弧まで変数名として読む。
 # set -u と組み合わさると unbound variable で落ちる（実際に踏んだ）

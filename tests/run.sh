@@ -88,6 +88,10 @@ echo "===== 13. 自動実行の時刻 ====="
 python3 "$ROOT/tests/verify_schedule.py"
 
 echo
+echo "===== 13b. 次に回す単位の選び方 ====="
+python3 "$ROOT/tests/verify_rotation.py"
+
+echo
 echo "===== 14. 自動実行の排他と再試行 ====="
 bash "$ROOT/tests/verify_lock.sh"
 

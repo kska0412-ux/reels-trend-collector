@@ -10,9 +10,14 @@
   python3 scripts/schedule.py            時刻を1行1件で出す
   python3 scripts/schedule.py --explain  避けた帯と空き時間も出す
 
-1回に複数ジャンルをまとめる。1ジャンルずつ19回に散らすと、Mac を
+1回に複数ジャンルをまとめる。1ジャンルずつ散らすと、Mac を
 日中ずっと開けておく必要がある。launchd は寝ている間の予定を
 起きたときに1回だけ実行するので、回数が多いほど取りこぼしが増える。
+
+どのジャンルを回すかは登録時には決めない。各回は `run_collect.sh --next 5` で
+起動し、その時点で最後に回してから一番時間が経っている5単位を
+scripts/rotation.py が選ぶ。ジャンルを足し引きしても launchd を
+登録し直す必要が無く、見送られた回の単位も次の回で自然に拾われる。
 """
 
 import argparse
@@ -57,6 +62,13 @@ RUNS_PER_DAY = 4
 # 見込みを超えて長引いても、排他ロックで後発が見送られるだけで壊れない。
 # 見送られたジャンルは翌日に回る。
 MINUTES_PER_GENRE = 16
+
+# 1回に回す単位の数。1日のアクセス量はこれ × RUNS_PER_DAY で決まる。
+# 19単位を毎日回していた頃（2026-09-28 まで）と同じ量に据え置いている。
+# 46単位に増えたので毎日全部は回さず、scripts/rotation.py が
+# 最後に回してから一番時間が経っている単位を選ぶ（一周は約2.3日）。
+# 増やすとアカウント停止の危険と Mac を開けておく時間が比例して増える。
+UNITS_PER_RUN = 5
 
 
 def busy_with_guard(windows=BUSY_WINDOWS, guard=GUARD_MINUTES):
@@ -130,24 +142,23 @@ def spread(count, free=None, need=0):
     return [divmod(m, 60) for m in picked]
 
 
-def make_batches(groups, runs=RUNS_PER_DAY):
+def plan_runs(total, runs=RUNS_PER_DAY, per_run=UNITS_PER_RUN):
     """
-    巡回する単位を runs 個のまとまりに分ける。設定に書いた順は崩さない。
+    1日の実行回数と、1回あたりの単位数を返す。
 
-    余りが出るときは前のまとまりから1つずつ多く持たせる。
-    後ろに寄せると最後の1回だけ長くなり、夜の枠からはみ出しやすい。
+    単位が少ないうちは、1日で全部回れる分だけに縮める（空回りさせない）。
+    多いときは per_run で頭打ちにし、残りは翌日以降に回す。
     """
-    if runs <= 0 or not groups:
-        return []
-    runs = min(runs, len(groups))
-    size, extra = divmod(len(groups), runs)
-    out = []
-    i = 0
-    for n in range(runs):
-        take = size + (1 if n < extra else 0)
-        out.append(groups[i:i + take])
-        i += take
-    return out
+    if total <= 0 or runs <= 0:
+        return 0, 0
+    runs = min(runs, total)
+    return runs, min(per_run, -(-total // runs))
+
+
+def cycle_days(total, runs=RUNS_PER_DAY, per_run=UNITS_PER_RUN):
+    """全単位を一周するのにかかる日数（見送りが無い場合）。"""
+    r, p = plan_runs(total, runs, per_run)
+    return total / (r * p) if r and p else 0.0
 
 
 def load_groups(path=CONFIG_FILE):
@@ -168,10 +179,9 @@ def main():
     args = parser.parse_args()
 
     groups = load_groups(args.config)
-    batches = make_batches(groups)
-    # 一番大きいまとまりに合わせて余裕を見る
-    need = max((len(b) for b in batches), default=0) * MINUTES_PER_GENRE
-    times = spread(len(batches), need=need)
+    runs, per_run = plan_runs(len(groups))
+    need = per_run * MINUTES_PER_GENRE
+    times = spread(runs, need=need)
 
     if args.explain:
         free = free_minutes()
@@ -179,14 +189,16 @@ def main():
         for a, b in busy_with_guard():
             print(f"  {a // 60:02d}:{a % 60:02d} 〜 {b // 60:02d}:{b % 60:02d}")
         print(f"空き時間: {len(free)} 分")
-        print(f"巡回する単位: {len(groups)} 件 → {len(batches)} 回にまとめる")
-        if len(batches) > 1:
-            print(f"間隔: 約 {len(free) // (len(batches) - 1)} 分")
+        print(f"巡回する単位: {len(groups)} 件 → 1日 {runs} 回 × {per_run} 単位"
+              f"（一周 約 {cycle_days(len(groups)):.1f} 日）")
+        if runs > 1:
+            print(f"間隔: 約 {len(free) // (runs - 1)} 分")
         print()
 
-    # 1行 = 1回ぶん。ジャンルはタブではなく空白で区切って並べる
-    for batch, (hour, minute) in zip(batches, times):
-        print(f"{' '.join(batch)}\t{hour}\t{minute}")
+    # 1行 = 1回ぶん。どの単位を回すかは実行時に rotation.py が決める。
+    # run_collect.sh に渡す引数を空白区切りで出す
+    for hour, minute in times:
+        print(f"--next {per_run}\t{hour}\t{minute}")
     return 0
 
 

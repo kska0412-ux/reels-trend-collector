@@ -32,25 +32,19 @@ check "書き出し先が \$HOME/Library/LaunchAgents ではない" \
   "$(echo "$DRY_DIR" | grep -c "^$AGENTS_REAL$")" "0"
 check "書き出し先が存在する" "$([ -d "$DRY_DIR" ] && echo yes)" "yes"
 
-# 主ジャンルと掛け合わせ語の両方を期待する。掛け合わせを落とすと
-# #サロン経営 などが永久に自動収集されない
-EXPECTED_GENRES="$(python3 -c "
-import json
-c = json.load(open('$ROOT/config/genres.json'))
-for g in list(c['genres']) + list(c.get('modifiers') or {}):
-    print(g)
-" | sort)"
-EXPECTED_COUNT="$(echo "$EXPECTED_GENRES" | grep -c .)"
+# どのジャンルを回すかは登録時に決めない。各回は run_collect.sh --next N で
+# 起動し、実行時に scripts/rotation.py が「最後に回してから一番古い N 単位」を選ぶ。
+# 46単位を毎日全部回すと Instagram へのアクセスが2.4倍になるため
+read -r EXPECTED_RUNS EXPECTED_PER_RUN < <(python3 -c "
+import sys; sys.path.insert(0, '$ROOT/scripts')
+from schedule import load_groups, plan_runs
+print(*plan_runs(len(load_groups())))
+")
 
 PLISTS=("$DRY_DIR"/*.plist)
 ACTUAL_COUNT="${#PLISTS[@]}"
-# 1回に複数ジャンルをまとめるので、plist の数は「1日の実行回数」になる。
-# Mac を開けておく時間帯を減らすため、1ジャンル1回では登録しない。
-EXPECTED_RUNS="$(python3 -c "
-import sys; sys.path.insert(0, '$ROOT/scripts')
-from schedule import load_groups, make_batches
-print(len(make_batches(load_groups())))
-")"
+# plist の数は「1日の実行回数」。Mac を開けておく時間帯を減らすため、
+# 1ジャンル1回では登録しない
 check "1日の実行回数ぶんのplistが作られる" "$ACTUAL_COUNT" "$EXPECTED_RUNS"
 
 echo
@@ -60,7 +54,7 @@ HAVE_PLUTIL=0
 command -v plutil >/dev/null 2>&1 && HAVE_PLUTIL=1
 
 ALL_HOURS=""; ALL_TIMES=""
-ACTUAL_GENRES=""
+BAD_ARGS=0
 PLACEHOLDER_LEFTOVER=0
 XML_BROKEN=0
 NO_ROOT_LOG=0
@@ -103,25 +97,19 @@ for f in "${PLISTS[@]}"; do
     echo "  FAIL 時刻が8〜20の範囲外: $f ($hour)"
   fi
 
-  # ジャンル名を集める（ProgramArguments の3番目の <string>）
-  # 1回に複数ジャンルを渡すので、run_collect.sh より後ろの引数を全部拾う
-  genre="$(echo "$content" | python3 -c "
+  # ProgramArguments は run_collect.sh --next N。ジャンル名を焼き込まない
+  args="$(echo "$content" | python3 -c "
 import sys, plistlib
 data = plistlib.loads(sys.stdin.buffer.read())
-for g in data['ProgramArguments'][2:]:
-    print(g)
+print(' '.join(data['ProgramArguments'][2:]))
 " 2>/dev/null)"
-  ACTUAL_GENRES="$ACTUAL_GENRES$genre
-"
-
-  # ProgramArguments が run_collect.sh とジャンル名を渡している
+  if [ "$args" != "--next $EXPECTED_PER_RUN" ]; then
+    BAD_ARGS=1
+    echo "  FAIL 引数が --next $EXPECTED_PER_RUN ではない: $f ($args)"
+  fi
   if ! echo "$content" | grep -q "run_collect.sh"; then
     NO_RUN_COLLECT=1
     echo "  FAIL run_collect.sh を渡していない: $f"
-  fi
-  if ! echo "$content" | grep -qF "<string>$genre</string>"; then
-    NO_RUN_COLLECT=1
-    echo "  FAIL ジャンル名を渡していない: $f"
   fi
 
   # PATH
@@ -144,7 +132,8 @@ done
 check "プレースホルダの残りが無い" "$PLACEHOLDER_LEFTOVER" "0"
 check "全plistが正しいXML" "$XML_BROKEN" "0"
 check "時刻が8〜20の範囲に収まる" "$BAD_HOUR" "0"
-check "ProgramArgumentsにrun_collect.shとジャンル名がある" "$NO_RUN_COLLECT" "0"
+check "ProgramArgumentsにrun_collect.shがある" "$NO_RUN_COLLECT" "0"
+check "全plistが --next $EXPECTED_PER_RUN で起動する（ジャンル名を焼き込まない）" "$BAD_ARGS" "0"
 check "PATHにhomebrew/localのbinが入っている" "$BAD_PATH" "0"
 check "標準出力/標準エラーがリポジトリのlogs/を指す" "$NO_ROOT_LOG" "0"
 
@@ -154,9 +143,6 @@ TIMES_UNIQ="$(echo "$TIMES_SORTED" | uniq)"
 check "時刻が重複していない" "$(echo "$TIMES_SORTED" | wc -l | tr -d ' ')" \
   "$(echo "$TIMES_UNIQ" | wc -l | tr -d ' ')"
 
-# ジャンル名が config/genres.json と過不足なく一致する
-ACTUAL_GENRES_SORTED="$(echo "$ACTUAL_GENRES" | grep -v '^$' | sort)"
-check "ジャンル名がconfigと過不足なく一致する" "$ACTUAL_GENRES_SORTED" "$EXPECTED_GENRES"
 
 # 同じ Mac で Threads Research Tool が 7時・13時・21時に走り、最悪54分かかる。
 # その帯に重ねると Chrome が2つ立ち上がって回線とCPUを食い合う
