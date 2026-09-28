@@ -133,7 +133,7 @@ console.log('--- 4. 語で検索する ---');
   const wantSalon = ROWS0.filter(r => (r.genres.includes(sg) || (r.text + ' ' + r.username).includes(sg)) &&
                                      (r.text + ' ' + r.username).includes('サロン')).length;
   const counts = [];
-  for (const v of [sg + 'サロン', sg + '×サロン', sg + '✖️サロン', sg + ' ✕ サロン', sg + ' サロン']) {
+  for (const v of [sg + 'サロン', sg + '×サロン', sg + '✖️サロン', sg + ' ✕ サロン', sg + ' サロン', sg + ' さろん']) {
     search(v);
     counts.push(n());
   }

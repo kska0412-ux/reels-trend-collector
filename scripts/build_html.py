@@ -681,6 +681,11 @@ TEMPLATE = r"""<!doctype html>
           return;
         }
       }
+      // 「さろん」とひらがなで打っても、キャプションは「サロン」の表記で探す
+      if (!hit && k === SALON) {
+        terms.push({ word: norm(SALON), named: null });
+        return;
+      }
       terms.push({ word: hit ? norm(hit.name) : w, named: hit });
     });
     return terms;
